@@ -10,9 +10,12 @@ inputs:
     required: true
     default: '.openzeppelin'
   fullyQualifiedContractNames:
-    description: 'Comma-separated list of fully qualified contract names to inspect their storage layout for conflicts'
+    description: 'Comma-separated list of fully qualified contract names to inspect their storage layout for conflicts. Must match with proxyOrBeaconAddresses'
     required: true
-  nodeRpcUrl: # TODO: This should not be needed anymore
+  proxyOrBeaconAddresses:
+    description: 'Comma-separated list of proxy or beacon addresses to inspect for conflicts. Must match with fullyQualifiedContractNames'
+    required: true
+  nodeRpcUrl:
     description: 'RPC URL to a blockchain node'
     required: true
 runs:
