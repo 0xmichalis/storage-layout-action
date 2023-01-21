@@ -1,23 +1,36 @@
-# Hello world javascript action
+# Solidity storage layout action
 
-This action prints "Hello World" or "Hello" + the name of a person to greet to the log.
+This action checks for storage layout conflicts in upgradeable Solidity contracts.
 
 ## Inputs
 
-### `who-to-greet`
+### `buildArtifactsPath`
 
-**Required** The name of the person to greet. Default `"World"`.
+**Required** Path to the directory where the Solidity compiler outputs built contracts. Defaults to `artifacts`.
 
-## Outputs
+### `storageLayoutPath`
 
-### `time`
+**Required** Path to the directory where contract storage layout is cached. Defaults to `.openzeppelin`.
 
-The time we greeted you.
+### `fullyQualifiedContractNames`
+
+**Required** Comma-separated list of fully qualified contract names to inspect their storage layout for conflicts. Must match with `proxyOrBeaconAddresses`.
+
+### `proxyOrBeaconAddresses`
+
+**Required** Comma-separated list of proxy or beacon addresses to inspect for conflicts. Must match with `fullyQualifiedContractNames`.
+
+### `nodeRpcUrl`
+
+**Required** RPC URL to a blockchain node.
+
 
 ## Example usage
 
 ```yaml
-uses: actions/hello-world-javascript-action@v1.1
+uses: actions/storage-layout-action@v0.1
 with:
-  who-to-greet: 'Mona the Octocat'
+  fullyQualifiedContractNames: RetirementCertificates,ToucanCarbonOffsets
+  proxyOrBeaconAddresses: 0x5e377f16E4ec6001652befD737341a28889Af002,0xD46eE8815F141749834AF0Df21E744459eFEc75F
+  nodeRpcUrl: https://matic-mainnet.chainstacklabs.com
 ```
