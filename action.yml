@@ -1,0 +1,20 @@
+name: 'Storage layout check'
+description: 'Storage layout checks for upgradeable Solidity contracts'
+inputs:
+  buildArtifactsPath:
+    description: 'Path to the directory where the Solidity compiler outputs built contracts'
+    required: true
+    default: 'artifacts'
+  storageLayoutPath:
+    description: 'Path to the directory where contract storage layout is cached'
+    required: true
+    default: '.openzeppelin'
+  fullyQualifiedContractNames:
+    description: 'Comma-separated list of fully qualified contract names to inspect their storage layout for conflicts'
+    required: true
+  nodeRpcUrl: # TODO: This should not be needed anymore
+    description: 'RPC URL to a blockchain node'
+    required: true
+runs:
+  using: 'node16'
+  main: 'index.js'

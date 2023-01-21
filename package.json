@@ -1,0 +1,41 @@
+{
+  "name": "storage-layout-action",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Github action to check for storage layout conflicts in upgradeable Solidity contracts",
+  "main": "lib/main.js",
+  "scripts": {
+    "build": "tsc",
+    "format:check": "prettier --check '**/*.ts'",
+    "format:write": "prettier --write '**/*.ts'",
+    "lint": "eslint src/**/*.ts"
+  },
+  "author": "Michalis Kargakis",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xmichalis/storage-layout-action.git"
+  },
+  "keywords": [
+    "actions",
+    "conflicts",
+    "contracts",
+    "layout",
+    "solidity",
+    "storage",
+    "upgradeable"
+  ],
+  "dependencies": {
+    "@actions/core": "^1.10.0",
+    "@actions/github": "^5.1.1",
+    "@openzeppelin/upgrades-core": "^1.21.0",
+    "@types/fs-extra": "^11.0.1",
+    "@types/node": "^18.11.18",
+    "@typescript-eslint/parser": "^5.48.2",
+    "eslint": "^8.32.0",
+    "ethers": "^5.7.2",
+    "fs-extra": "^11.1.0",
+    "prettier": "^2.8.3",
+    "typescript": "^4.9.4"
+  }
+}
