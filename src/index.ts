@@ -11,6 +11,7 @@ import {
   EthereumProvider
 } from '@openzeppelin/upgrades-core'
 import {providers} from 'ethers'
+import fs from 'fs-extra'
 
 import {getBuildInfo} from './utils'
 
@@ -49,8 +50,9 @@ async function run(): Promise<void> {
       )
 
     const storageLayoutPath = core.getInput('storageLayoutPath')
-    if (storageLayoutPath !== '.openzeppelin') {
-      // TODO: Copy to .openzeppelin
+    const manifestDir = '.openzeppelin'
+    if (storageLayoutPath !== manifestDir && storageLayoutPath !== `${manifestDir}/`) {
+      await fs.copy(`${storageLayoutPath}/`, `${manifestDir}/`)
     }
 
     const rpcURL = core.getInput('nodeRpcUrl')
