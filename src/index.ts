@@ -52,6 +52,7 @@ async function run(): Promise<void> {
     const storageLayoutPath = core.getInput('storageLayoutPath')
     const manifestDir = '.openzeppelin'
     if (storageLayoutPath !== manifestDir && storageLayoutPath !== `${manifestDir}/`) {
+      console.log(`Copying ${storageLayoutPath}/ to ${manifestDir}/ ...`)
       await fs.copy(`${storageLayoutPath}/`, `${manifestDir}/`)
     }
 
