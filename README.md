@@ -28,7 +28,7 @@ This action checks for storage layout conflicts in upgradeable Solidity contract
 ## Example usage
 
 ```yaml
-uses: actions/storage-layout-action@v0.1
+uses: 0xmichalis/storage-layout-action@main
 with:
   fullyQualifiedContractNames: RetirementCertificates,ToucanCarbonOffsets
   proxyOrBeaconAddresses: 0x5e377f16E4ec6001652befD737341a28889Af002,0xD46eE8815F141749834AF0Df21E744459eFEc75F
