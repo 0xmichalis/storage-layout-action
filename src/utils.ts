@@ -13,7 +13,7 @@ export async function getBuildInfo(
   const buildInfoPath = await _getBuildInfoFromDebugFile(debugFilePath)
 
   if (buildInfoPath === undefined) {
-    throw Error(`Cannot find build info path`)
+    throw Error(`Cannot find build info path: debug filepath: ${debugFilePath}`)
   }
 
   return fsExtra.readJSON(buildInfoPath)

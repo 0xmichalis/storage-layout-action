@@ -4,7 +4,7 @@ inputs:
   buildArtifactsPath:
     description: 'Path to the directory where the Solidity compiler outputs built contracts'
     required: true
-    default: 'artifacts'
+    default: 'artifacts/contracts'
   storageLayoutPath:
     description: 'Path to the directory where contract storage layout is cached'
     required: true
