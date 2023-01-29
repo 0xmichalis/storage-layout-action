@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Github action to check for storage layout conflicts in upgradeable Solidity contracts",
-  "main": "lib/main.js",
+  "main": "lib/index.js",
   "scripts": {
     "build": "tsc",
     "format:check": "prettier --check '**/*.ts'",
