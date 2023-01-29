@@ -59,16 +59,22 @@ async function run(): Promise<void> {
     const rpcURL = core.getInput('nodeRpcUrl')
     const provider = new providers.StaticJsonRpcProvider(rpcURL)
     const manifest = await Manifest.forNetwork(provider)
+    console.log(`Manifest: ${JSON.stringify(manifest)}`)
 
     const artifactsPath = core.getInput('buildArtifactsPath')
     for (let i = 0; i < contractNames.length; i++) {
       // Determine layout for deployed contract by looking at network manifest
+      console.log(`Proxy: ${addresses[i]} (${contractNames[i]})`)
       const implAddress = await getImplementationForProxyOrBeacon(provider, addresses[i])
+      console.log(`Implementation: ${implAddress}`)
       const d = await manifest.getDeploymentFromAddress(implAddress)
+      console.log(`Deployment: ${JSON.stringify(d)}`)
 
       // Generate storage upgrade report
       const solcInfo = await getBuildInfo(artifactsPath, contractNames[i])
+      console.log(`Build info: ${solcInfo}`)
       const updated = new UpgradeableContract(contractNames[i], solcInfo.input, solcInfo.output)
+      console.log(`UpgradeableContract: ${updated.version}`)
       const report = getStorageUpgradeReport(
         d.layout,
         updated.layout,

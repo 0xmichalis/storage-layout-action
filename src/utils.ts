@@ -28,7 +28,7 @@ function formArtifactPathFromFullyQualifiedName(
 ): string {
   const {sourceName, contractName} = parseFullyQualifiedName(fullyQualifiedName)
 
-  return path.join(artifactsPath, sourceName, `${contractName}.json`)
+  return path.join(artifactsPath, sourceName, contractName)
 }
 
 /**
