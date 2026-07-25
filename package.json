@@ -1,14 +1,15 @@
 {
   "name": "storage-layout-action",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Github action to check for storage layout conflicts in upgradeable Solidity contracts",
-  "main": "lib/index.js",
+  "description": "GitHub action to track storage layouts of upgradeable Solidity contracts in Foundry projects and block incompatible changes",
+  "main": "dist/index.cjs",
   "scripts": {
-    "build": "tsc",
-    "format:check": "prettier --check '**/*.ts'",
-    "format:write": "prettier --write '**/*.ts'",
-    "lint": "eslint src/**/*.ts"
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node20 --format=cjs --external:@nomicfoundation/slang --external:'@nomicfoundation/slang/*' --outfile=dist/index.cjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "format:check": "prettier --check 'src/**/*.ts' 'test/**/*.ts'",
+    "format:write": "prettier --write 'src/**/*.ts' 'test/**/*.ts'"
   },
   "author": "Michalis Kargakis",
   "license": "MIT",
@@ -20,24 +21,24 @@
     "actions",
     "conflicts",
     "contracts",
+    "foundry",
+    "forge",
     "layout",
     "solidity",
     "storage",
     "upgradeable"
   ],
+  "engines": {
+    "node": ">=20"
+  },
   "devDependencies": {
-    "@types/fs-extra": "^11.0.1",
-    "@types/node": "^18.11.18",
-    "@typescript-eslint/parser": "^6.0.0",
-    "eslint": "^8.32.0",
-    "prettier": "^2.8.3",
-    "typescript": "^5.0.0"
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "prettier": "^3.6.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
   },
   "dependencies": {
-    "@actions/core": "^1.10.0",
-    "@actions/github": "^5.1.1",
-    "@openzeppelin/upgrades-core": "^1.21.0",
-    "ethers": "^5.7.2",
-    "fs-extra": "^11.1.0"
+    "@openzeppelin/upgrades-core": "^1.46.0"
   }
 }

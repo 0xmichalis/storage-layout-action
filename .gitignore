@@ -1,0 +1,3 @@
+node_modules/
+test/fixture-project/out/
+test/fixture-project/cache/

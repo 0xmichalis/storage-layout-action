@@ -1,23 +1,68 @@
 name: 'Storage layout check'
-description: 'Storage layout checks for upgradeable Solidity contracts'
+description: >-
+  Tracks storage layout snapshots of contracts in Foundry projects and blocks
+  changes that are not storage-compatible upgrades
+branding:
+  icon: 'layers'
+  color: 'blue'
 inputs:
-  buildArtifactsPath:
-    description: 'Path to the directory where the Solidity compiler outputs built contracts'
-    required: true
-    default: 'artifacts/contracts'
-  storageLayoutPath:
-    description: 'Path to the directory where contract storage layout is cached'
-    required: true
-    default: '.openzeppelin'
-  fullyQualifiedContractNames:
-    description: 'Comma-separated list of fully qualified contract names to inspect their storage layout for conflicts. Must match with proxyOrBeaconAddresses'
-    required: true
-  proxyOrBeaconAddresses:
-    description: 'Comma-separated list of proxy or beacon addresses to inspect for conflicts. Must match with fullyQualifiedContractNames'
-    required: true
-  nodeRpcUrl:
-    description: 'RPC URL to a blockchain node'
-    required: true
+  contracts:
+    description: >-
+      Comma- or newline-separated contracts to check, as bare names (`Vault`)
+      or fully qualified names (`src/Vault.sol:Vault`) when a bare name is
+      ambiguous. Contracts that already have a snapshot in
+      `storage-layout-path` are checked automatically and do not need to be
+      listed.
+    required: false
+    default: ''
+  storage-layout-path:
+    description: >-
+      Directory holding the committed storage layout snapshots, relative to
+      `working-directory`
+    required: false
+    default: 'storage-layouts'
+  working-directory:
+    description: 'Root of the Foundry project, relative to the repository checkout'
+    required: false
+    default: '.'
+  base:
+    description: >-
+      Git ref or commit providing the reference snapshots for the
+      compatibility check. Defaults to the base branch on pull_request
+      events, the previous branch tip on push events and the merge queue
+      base on merge_group events.
+    required: false
+    default: ''
+  unsafe-allow-renames:
+    description: >-
+      Allow renaming state variables that keep their slot, offset and type
+    required: false
+    default: 'false'
+  foundry-version:
+    description: 'Foundry version to install when forge is not already on PATH'
+    required: false
+    default: 'stable'
 runs:
-  using: 'node16'
-  main: 'lib/index.js'
+  using: 'composite'
+  steps:
+    - id: forge
+      shell: bash
+      run: |
+        if command -v forge >/dev/null 2>&1; then
+          echo "installed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "installed=false" >> "$GITHUB_OUTPUT"
+        fi
+    - if: steps.forge.outputs.installed == 'false'
+      uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1.9.0
+      with:
+        version: ${{ inputs.foundry-version }}
+        cache: false
+    - shell: bash
+      env:
+        INPUT_CONTRACTS: ${{ inputs.contracts }}
+        INPUT_STORAGE_LAYOUT_PATH: ${{ inputs.storage-layout-path }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        INPUT_BASE: ${{ inputs.base }}
+        INPUT_UNSAFE_ALLOW_RENAMES: ${{ inputs.unsafe-allow-renames }}
+      run: node "$GITHUB_ACTION_PATH/dist/index.cjs"

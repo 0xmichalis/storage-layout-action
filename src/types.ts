@@ -1,15 +1,71 @@
-import {SolcInput, SolcOutput} from '@openzeppelin/upgrades-core'
+/**
+ * Shapes of the solc `storageLayout` output as emitted by
+ * `forge inspect <contract> storage-layout --json`.
+ */
+export interface RawStorageItem {
+  astId?: number
+  contract?: string
+  label: string
+  offset: number
+  slot: string
+  type: string
+}
+
+export interface RawTypeMember {
+  astId?: number
+  contract?: string
+  label: string
+  offset: number
+  slot: string
+  type: string
+}
+
+export interface RawType {
+  encoding?: string
+  label?: string
+  numberOfBytes?: string
+  members?: RawTypeMember[]
+  base?: string
+  key?: string
+  value?: string
+}
+
+export interface RawLayout {
+  storage: RawStorageItem[]
+  types?: Record<string, RawType> | null
+}
 
 /**
- * A BuildInfo is a file that contains all the information of a solc run. It
- * includes all the necessary information to recreate that exact same run, and
- * all of its output.
+ * Normalized layout: only semantically relevant fields, with type
+ * identifiers stabilized (astId noise stripped) so that unrelated
+ * source changes do not affect comparisons.
  */
-export interface BuildInfo {
-  _format: string
-  id: string
-  solcVersion: string
-  solcLongVersion: string
-  input: SolcInput
-  output: SolcOutput
+export interface NormalizedStorageItem {
+  label: string
+  offset: number
+  slot: string
+  type: string
+  contract?: string
+}
+
+export interface NormalizedTypeMember {
+  label: string
+  offset: number
+  slot: string
+  type: string
+}
+
+export interface NormalizedType {
+  encoding?: string
+  label?: string
+  numberOfBytes?: string
+  members?: NormalizedTypeMember[]
+  base?: string
+  key?: string
+  value?: string
+}
+
+export interface NormalizedLayout {
+  storage: NormalizedStorageItem[]
+  types: Record<string, NormalizedType>
 }
