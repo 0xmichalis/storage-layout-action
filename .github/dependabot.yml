@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # Dependabot cannot rebuild dist/index.cjs, so npm update PRs fail the
+  # dist-up-to-date CI check until `npm run build` is run on the branch.
+  # Updates are grouped so only one branch a week needs the rebuild.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm:
+        patterns:
+          - "*"
+
+  # Covers the workflows and the pinned actions in action.yml.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
