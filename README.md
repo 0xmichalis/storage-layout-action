@@ -110,13 +110,3 @@ The freshness check always runs. When a contract has no snapshot at the base
   freshness comparison ignores `astId` churn from unrelated source changes,
   so snapshots only need regenerating when the layout actually changes.
 - The runner needs Node.js 20+ on PATH (GitHub-hosted runners have it).
-
-## Migrating from the Hardhat version
-
-Earlier revisions of this action validated Hardhat projects against
-OpenZeppelin network manifests (`.openzeppelin/`) and a live RPC endpoint.
-That mode was removed in the Foundry rework, and the inputs
-(`fullyQualifiedContractNames`, `proxyOrBeaconAddresses`, `nodeRpcUrl`,
-`buildArtifactsPath`, `storageLayoutPath`) no longer exist. If you still need
-the Hardhat behavior, pin
-`0xmichalis/storage-layout-action@6387745091797bdf9f1d7ddcd3af6b54c359ad8e`.
