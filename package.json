@@ -40,5 +40,13 @@
   },
   "dependencies": {
     "@openzeppelin/upgrades-core": "^1.46.0"
+  },
+  "overrides": {
+    "bn.js": "^5.2.3",
+    "secp256k1": "^4.0.4",
+    "elliptic": {
+      ".": "^6.6.1",
+      "bn.js": "^4.12.3"
+    }
   }
 }
