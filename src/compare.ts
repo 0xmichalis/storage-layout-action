@@ -34,10 +34,15 @@ export function checkCompatibility(
   unsafeAllowRenames: boolean
 ): CompatibilityResult {
   try {
+    // solc layouts carry no enum member lists, so without
+    // unsafeAllowCustomTypes every enum-bearing layout is rejected as
+    // "insufficient data to compare enums" even when identical. The flag
+    // only suppresses that insufficient-data path; struct members are
+    // present in solc output and remain fully enforced.
     const report = getStorageUpgradeReport(
       toUpgradesLayout(oldLayout),
       toUpgradesLayout(newLayout),
-      withValidationDefaults({unsafeAllowRenames})
+      withValidationDefaults({unsafeAllowRenames, unsafeAllowCustomTypes: true})
     )
     return {
       pass: report.pass,

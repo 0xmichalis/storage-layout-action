@@ -18,6 +18,7 @@ describe('parseLayout', () => {
       'paused',
       'totalShares',
       'positions',
+      'status',
       '__gap'
     ])
   })
@@ -48,7 +49,8 @@ describe('normalizeLayout', () => {
     expect(struct.members).toEqual([
       {label: 'amount0', offset: 0, slot: '0', type: 't_uint128'},
       {label: 'amount1', offset: 16, slot: '0', type: 't_uint128'},
-      {label: 'owner', offset: 0, slot: '1', type: 't_address'}
+      {label: 'owner', offset: 0, slot: '1', type: 't_address'},
+      {label: 'status', offset: 20, slot: '1', type: 't_enum(Status)'}
     ])
     expect(JSON.stringify(normalized)).not.toContain('astId')
   })
@@ -56,19 +58,11 @@ describe('normalizeLayout', () => {
   it('is insensitive to astId churn', () => {
     const original = parseLayout(vaultSnapshot)
     const churned = JSON.parse(
-      vaultSnapshot.replace(/"astId": (\d+)/g, (_, id) => `"astId": ${Number(id) + 1000}`)
+      vaultSnapshot
+        .replace(/"astId": (\d+)/g, (_, id) => `"astId": ${Number(id) + 1000}`)
+        .replace(/\(Position\)\d+_/g, '(Position)777_')
+        .replace(/\(Status\)\d+/g, '(Status)888')
     ) as RawLayout
-    for (const [id, type] of Object.entries(churned.types ?? {})) {
-      if (id.includes('(Position)8_')) {
-        delete (churned.types as Record<string, unknown>)[id]
-        ;(churned.types as Record<string, unknown>)[id.replace('(Position)8_', '(Position)77_')] =
-          type
-      }
-    }
-    churned.storage = churned.storage.map(item => ({
-      ...item,
-      type: item.type.replace('(Position)8_', '(Position)77_')
-    }))
 
     expect(deepEqual(normalizeLayout(original), normalizeLayout(churned))).toBe(true)
   })
@@ -128,7 +122,7 @@ describe('diffLayouts', () => {
     changed.storage[0] = {...changed.storage[0], type: 't_uint160'}
     const lines = diffLayouts(base, changed)
     expect(lines).toContain('~ slot 0 offset 0: manager (t_address) -> manager (t_uint160)')
-    expect(lines).toContain('- __gap: t_array(t_uint256)46_storage (slot 3 offset 0)')
+    expect(lines).toContain('- __gap: t_array(t_uint256)46_storage (slot 4 offset 0)')
   })
 
   it('reports type definition changes', () => {

@@ -117,6 +117,57 @@ describe('checkCompatibility', () => {
     expect(checkCompatibility(base, upgraded, true).pass).toBe(true)
   })
 
+  it('accepts identical layouts containing enums, whose members solc omits', () => {
+    const withEnum: NormalizedLayout = {
+      storage: [
+        {label: 'status', offset: 0, slot: '0', type: 't_enum(Status)', contract: CONTRACT},
+        ...base.storage.map(item => ({...item, slot: String(Number(item.slot) + 1)}))
+      ],
+      types: {
+        ...TYPES,
+        't_enum(Status)': {encoding: 'inplace', label: 'enum Status', numberOfBytes: '1'}
+      }
+    }
+    expect(checkCompatibility(withEnum, withEnum, false).pass).toBe(true)
+  })
+
+  it('rejects struct member changes even when the struct contains an enum', () => {
+    const structWithEnum = (memberType: string): NormalizedLayout => ({
+      storage: [
+        {
+          label: 'position',
+          offset: 0,
+          slot: '0',
+          type: 't_struct(Position)storage',
+          contract: CONTRACT
+        }
+      ],
+      types: {
+        ...TYPES,
+        't_enum(Status)': {encoding: 'inplace', label: 'enum Status', numberOfBytes: '1'},
+        't_struct(Position)storage': {
+          encoding: 'inplace',
+          label: 'struct Position',
+          numberOfBytes: '64',
+          members: [
+            {label: 'status', offset: 0, slot: '0', type: 't_enum(Status)'},
+            {label: 'amount', offset: 0, slot: '1', type: memberType}
+          ]
+        }
+      }
+    })
+    expect(
+      checkCompatibility(structWithEnum('t_uint256'), structWithEnum('t_uint256'), false).pass
+    ).toBe(true)
+    const result = checkCompatibility(
+      structWithEnum('t_uint256'),
+      structWithEnum('t_address'),
+      false
+    )
+    expect(result.pass).toBe(false)
+    expect(result.explanation).toContain('amount')
+  })
+
   it('rejects a growing storage gap', () => {
     const upgraded = withStorage([
       ...base.storage.slice(0, 3),

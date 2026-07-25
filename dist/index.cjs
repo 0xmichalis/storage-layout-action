@@ -39582,7 +39582,7 @@ function checkCompatibility(oldLayout, newLayout, unsafeAllowRenames) {
     const report = (0, import_upgrades_core.getStorageUpgradeReport)(
       toUpgradesLayout(oldLayout),
       toUpgradesLayout(newLayout),
-      (0, import_upgrades_core.withValidationDefaults)({ unsafeAllowRenames })
+      (0, import_upgrades_core.withValidationDefaults)({ unsafeAllowRenames, unsafeAllowCustomTypes: true })
     );
     return {
       pass: report.pass,
