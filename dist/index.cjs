@@ -6,7 +6,11 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  try {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  } catch (e) {
+    throw mod = 0, e;
+  }
 };
 var __export = (target, all) => {
   for (var name in all)
@@ -7261,7 +7265,7 @@ var require_bn = __commonJS({
       };
       if (typeof Symbol !== "undefined" && typeof Symbol.for === "function") {
         try {
-          BN.prototype[Symbol.for("nodejs.util.inspect.custom")] = inspect;
+          BN.prototype[/* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom")] = inspect;
         } catch (e) {
           BN.prototype.inspect = inspect;
         }
@@ -20867,13 +20871,13 @@ var require_async_iterator = __commonJS({
       return (hint === "string" ? String : Number)(input);
     }
     var finished = require_end_of_stream();
-    var kLastResolve = Symbol("lastResolve");
-    var kLastReject = Symbol("lastReject");
-    var kError = Symbol("error");
-    var kEnded = Symbol("ended");
-    var kLastPromise = Symbol("lastPromise");
-    var kHandlePromise = Symbol("handlePromise");
-    var kStream = Symbol("stream");
+    var kLastResolve = /* @__PURE__ */ Symbol("lastResolve");
+    var kLastReject = /* @__PURE__ */ Symbol("lastReject");
+    var kError = /* @__PURE__ */ Symbol("error");
+    var kEnded = /* @__PURE__ */ Symbol("ended");
+    var kLastPromise = /* @__PURE__ */ Symbol("lastPromise");
+    var kHandlePromise = /* @__PURE__ */ Symbol("handlePromise");
+    var kStream = /* @__PURE__ */ Symbol("stream");
     function createIterResult(value, done) {
       return {
         value,
@@ -23765,7 +23769,7 @@ var require_lib2 = __commonJS({
       /**
        * @ignore
        */
-      [Symbol.for("nodejs.util.inspect.custom")](depth, options) {
+      [/* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom")](depth, options) {
         const bufs = this._bufArray();
         const hex = bufs.map((b) => {
           if (Buffer2.isBuffer(b)) {
@@ -24322,11 +24326,11 @@ var require_constants2 = __commonJS({
       UNDEFINED: 23
     };
     exports2.SYMS = {
-      NULL: Symbol.for("github.com/hildjj/node-cbor/null"),
-      UNDEFINED: Symbol.for("github.com/hildjj/node-cbor/undef"),
-      PARENT: Symbol.for("github.com/hildjj/node-cbor/parent"),
-      BREAK: Symbol.for("github.com/hildjj/node-cbor/break"),
-      STREAM: Symbol.for("github.com/hildjj/node-cbor/stream")
+      NULL: /* @__PURE__ */ Symbol.for("github.com/hildjj/node-cbor/null"),
+      UNDEFINED: /* @__PURE__ */ Symbol.for("github.com/hildjj/node-cbor/undef"),
+      PARENT: /* @__PURE__ */ Symbol.for("github.com/hildjj/node-cbor/parent"),
+      BREAK: /* @__PURE__ */ Symbol.for("github.com/hildjj/node-cbor/break"),
+      STREAM: /* @__PURE__ */ Symbol.for("github.com/hildjj/node-cbor/stream")
     };
     exports2.SHIFT32 = 4294967296;
     exports2.BI = {
@@ -24502,8 +24506,8 @@ var require_utils5 = __commonJS({
             const hex = buf.toString("hex");
             return float_bytes === -Infinity ? hex : `h'${hex}'`;
           }
-          if (val && typeof val[Symbol.for("nodejs.util.inspect.custom")] === "function") {
-            return val[Symbol.for("nodejs.util.inspect.custom")]();
+          if (val && typeof val[/* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom")] === "function") {
+            return val[/* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom")]();
           }
           if (Array.isArray(val)) {
             return "[]";
@@ -24631,7 +24635,7 @@ var require_tagged = __commonJS({
     "use strict";
     var constants = require_constants2();
     var utils = require_utils5();
-    var INTERNAL_JSON = Symbol("INTERNAL_JSON");
+    var INTERNAL_JSON = /* @__PURE__ */ Symbol("INTERNAL_JSON");
     function setBuffersToJSON(obj, fn) {
       if (utils.isBufferish(obj)) {
         obj.toJSON = fn;
@@ -24951,7 +24955,7 @@ var require_simple = __commonJS({
        * @param {object} _opts Options.
        * @returns {string} Formatted string of `simple(value)`.
        */
-      [Symbol.for("nodejs.util.inspect.custom")](_depth, _opts) {
+      [/* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom")](_depth, _opts) {
         return `simple(${this.value})`;
       }
       /**
@@ -25027,10 +25031,10 @@ var require_decoder = __commonJS({
     var constants = require_constants2();
     var { MT, NUMBYTES, SYMS, BI } = constants;
     var { Buffer: Buffer2 } = require("buffer");
-    var COUNT = Symbol("count");
-    var MAJOR = Symbol("major type");
-    var ERROR = Symbol("error");
-    var NOT_FOUND = Symbol("not found");
+    var COUNT = /* @__PURE__ */ Symbol("count");
+    var MAJOR = /* @__PURE__ */ Symbol("major type");
+    var ERROR = /* @__PURE__ */ Symbol("error");
+    var NOT_FOUND = /* @__PURE__ */ Symbol("not found");
     function parentArray(parent, typ, count) {
       const a = [];
       a[COUNT] = count;
@@ -33112,8 +33116,8 @@ var require_graceful_fs = __commonJS({
     var gracefulQueue;
     var previousSymbol;
     if (typeof Symbol === "function" && typeof Symbol.for === "function") {
-      gracefulQueue = Symbol.for("graceful-fs.queue");
-      previousSymbol = Symbol.for("graceful-fs.previous");
+      gracefulQueue = /* @__PURE__ */ Symbol.for("graceful-fs.queue");
+      previousSymbol = /* @__PURE__ */ Symbol.for("graceful-fs.previous");
     } else {
       gracefulQueue = "___graceful-fs.queue";
       previousSymbol = "___graceful-fs.previous";
@@ -33895,7 +33899,7 @@ var require_signal_exit = __commonJS({
 var require_mtime_precision = __commonJS({
   "node_modules/proper-lockfile/lib/mtime-precision.js"(exports2, module2) {
     "use strict";
-    var cacheSymbol = Symbol();
+    var cacheSymbol = /* @__PURE__ */ Symbol();
     function probe(file, fs4, callback) {
       const cachedPrecision = fs4[cacheSymbol];
       if (cachedPrecision) {
@@ -37420,7 +37424,7 @@ var require_ast = __commonJS({
       get depth() {
         return (this.#parent?.depth ?? -1) + 1;
       }
-      [Symbol.for("nodejs.util.inspect.custom")]() {
+      [/* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom")]() {
         return {
           "@@type": "AST",
           id: this.id,
@@ -38079,7 +38083,7 @@ var require_commonjs3 = __commonJS({
     };
     exports2.sep = defaultPlatform === "win32" ? path3.win32.sep : path3.posix.sep;
     exports2.minimatch.sep = exports2.sep;
-    exports2.GLOBSTAR = Symbol("globstar **");
+    exports2.GLOBSTAR = /* @__PURE__ */ Symbol("globstar **");
     exports2.minimatch.GLOBSTAR = exports2.GLOBSTAR;
     var qmark = "[^/]";
     var star = qmark + "*?";

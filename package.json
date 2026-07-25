@@ -1,6 +1,6 @@
 {
   "name": "storage-layout-action",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "GitHub action to track storage layouts of upgradeable Solidity contracts in Foundry projects and block incompatible changes",
   "main": "dist/index.cjs",
@@ -32,11 +32,11 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "esbuild": "^0.25.0",
+    "@types/node": "^26.1.1",
+    "esbuild": "^0.28.1",
     "prettier": "^3.6.0",
-    "typescript": "^5.8.0",
-    "vitest": "^3.2.0"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "@openzeppelin/upgrades-core": "^1.46.0"
