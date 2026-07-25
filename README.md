@@ -103,9 +103,10 @@ The freshness check always runs. When a contract has no snapshot at the base
   (inherited) storage. It does not model ERC-7201 namespaced storage, and
   NatSpec annotations such as `@custom:oz-renamed-from` are not honored (use
   `unsafe-allow-renames` for deliberate renames).
-- Enum member lists are not part of solc's layout output, so enum reorders
-  that keep the enum's byte size are not caught. Growing an enum past a byte
-  boundary is caught.
+- Enum member lists are not part of solc's layout output, so the comparison
+  treats same-named enums as compatible: value reorders or removals that keep
+  the enum's byte size are not caught. Growing an enum past a byte boundary is
+  caught, since the layout around it shifts.
 - Snapshots may be committed exactly as `forge inspect` emits them; the
   freshness comparison ignores `astId` churn from unrelated source changes,
   so snapshots only need regenerating when the layout actually changes.

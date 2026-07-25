@@ -1,7 +1,7 @@
 {
   "storage": [
     {
-      "astId": 10,
+      "astId": 16,
       "contract": "src/Vault.sol:Vault",
       "label": "manager",
       "offset": 0,
@@ -9,7 +9,7 @@
       "type": "t_address"
     },
     {
-      "astId": 12,
+      "astId": 18,
       "contract": "src/Vault.sol:Vault",
       "label": "paused",
       "offset": 20,
@@ -17,7 +17,7 @@
       "type": "t_bool"
     },
     {
-      "astId": 14,
+      "astId": 20,
       "contract": "src/Vault.sol:Vault",
       "label": "totalShares",
       "offset": 0,
@@ -25,19 +25,27 @@
       "type": "t_uint256"
     },
     {
-      "astId": 19,
+      "astId": 25,
       "contract": "src/Vault.sol:Vault",
       "label": "positions",
       "offset": 0,
       "slot": "2",
-      "type": "t_mapping(t_address,t_struct(Position)8_storage)"
+      "type": "t_mapping(t_address,t_struct(Position)14_storage)"
     },
     {
-      "astId": 23,
+      "astId": 28,
+      "contract": "src/Vault.sol:Vault",
+      "label": "status",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_enum(Status)4"
+    },
+    {
+      "astId": 32,
       "contract": "src/Vault.sol:Vault",
       "label": "__gap",
       "offset": 0,
-      "slot": "3",
+      "slot": "4",
       "type": "t_array(t_uint256)46_storage"
     }
   ],
@@ -58,20 +66,25 @@
       "label": "bool",
       "numberOfBytes": "1"
     },
-    "t_mapping(t_address,t_struct(Position)8_storage)": {
+    "t_enum(Status)4": {
+      "encoding": "inplace",
+      "label": "enum Status",
+      "numberOfBytes": "1"
+    },
+    "t_mapping(t_address,t_struct(Position)14_storage)": {
       "encoding": "mapping",
       "key": "t_address",
       "label": "mapping(address => struct Position)",
       "numberOfBytes": "32",
-      "value": "t_struct(Position)8_storage"
+      "value": "t_struct(Position)14_storage"
     },
-    "t_struct(Position)8_storage": {
+    "t_struct(Position)14_storage": {
       "encoding": "inplace",
       "label": "struct Position",
       "numberOfBytes": "64",
       "members": [
         {
-          "astId": 3,
+          "astId": 6,
           "contract": "src/Vault.sol:Vault",
           "label": "amount0",
           "offset": 0,
@@ -79,7 +92,7 @@
           "type": "t_uint128"
         },
         {
-          "astId": 5,
+          "astId": 8,
           "contract": "src/Vault.sol:Vault",
           "label": "amount1",
           "offset": 16,
@@ -87,12 +100,20 @@
           "type": "t_uint128"
         },
         {
-          "astId": 7,
+          "astId": 10,
           "contract": "src/Vault.sol:Vault",
           "label": "owner",
           "offset": 0,
           "slot": "1",
           "type": "t_address"
+        },
+        {
+          "astId": 13,
+          "contract": "src/Vault.sol:Vault",
+          "label": "status",
+          "offset": 20,
+          "slot": "1",
+          "type": "t_enum(Status)4"
         }
       ]
     },
