@@ -38,8 +38,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: 0xmichalis/storage-layout-action@main
+      - uses: 0xmichalis/storage-layout-action@v0
 ```
+
+Releases are cut automatically when the version in `package.json` changes on
+`main`; the matching `vX.Y.Z` tag is created and the floating major tag (`v0`)
+moves to it. Pin a full release tag or commit SHA for stronger supply-chain
+guarantees.
 
 Foundry is installed automatically when `forge` is not already on the PATH
 (set `foundry-version` to pin the version it installs). A shallow checkout is
