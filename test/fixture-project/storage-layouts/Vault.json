@@ -1,0 +1,110 @@
+{
+  "storage": [
+    {
+      "astId": 10,
+      "contract": "src/Vault.sol:Vault",
+      "label": "manager",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_address"
+    },
+    {
+      "astId": 12,
+      "contract": "src/Vault.sol:Vault",
+      "label": "paused",
+      "offset": 20,
+      "slot": "0",
+      "type": "t_bool"
+    },
+    {
+      "astId": 14,
+      "contract": "src/Vault.sol:Vault",
+      "label": "totalShares",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_uint256"
+    },
+    {
+      "astId": 19,
+      "contract": "src/Vault.sol:Vault",
+      "label": "positions",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_mapping(t_address,t_struct(Position)8_storage)"
+    },
+    {
+      "astId": 23,
+      "contract": "src/Vault.sol:Vault",
+      "label": "__gap",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_array(t_uint256)46_storage"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_array(t_uint256)46_storage": {
+      "encoding": "inplace",
+      "label": "uint256[46]",
+      "numberOfBytes": "1472",
+      "base": "t_uint256"
+    },
+    "t_bool": {
+      "encoding": "inplace",
+      "label": "bool",
+      "numberOfBytes": "1"
+    },
+    "t_mapping(t_address,t_struct(Position)8_storage)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => struct Position)",
+      "numberOfBytes": "32",
+      "value": "t_struct(Position)8_storage"
+    },
+    "t_struct(Position)8_storage": {
+      "encoding": "inplace",
+      "label": "struct Position",
+      "numberOfBytes": "64",
+      "members": [
+        {
+          "astId": 3,
+          "contract": "src/Vault.sol:Vault",
+          "label": "amount0",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 5,
+          "contract": "src/Vault.sol:Vault",
+          "label": "amount1",
+          "offset": 16,
+          "slot": "0",
+          "type": "t_uint128"
+        },
+        {
+          "astId": 7,
+          "contract": "src/Vault.sol:Vault",
+          "label": "owner",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_address"
+        }
+      ]
+    },
+    "t_uint128": {
+      "encoding": "inplace",
+      "label": "uint128",
+      "numberOfBytes": "16"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    }
+  }
+}
