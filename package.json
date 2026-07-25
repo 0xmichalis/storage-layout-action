@@ -1,6 +1,6 @@
 {
   "name": "storage-layout-action",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "GitHub action to track storage layouts of upgradeable Solidity contracts in Foundry projects and block incompatible changes",
   "main": "dist/index.cjs",
