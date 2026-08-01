@@ -54,7 +54,7 @@ runs:
           echo "installed=false" >> "$GITHUB_OUTPUT"
         fi
     - if: steps.forge.outputs.installed == 'false'
-      uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1.9.0
+      uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
       with:
         version: ${{ inputs.foundry-version }}
         cache: false
