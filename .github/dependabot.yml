@@ -1,14 +1,19 @@
 version: 2
 updates:
-  # Dependabot cannot rebuild dist/index.cjs, so npm update PRs fail the
+  # Version updates are disabled (open-pull-requests-limit: 0) because
+  # Dependabot cannot rebuild dist/index.cjs, so every npm PR fails the
   # dist-up-to-date CI check until `npm run build` is run on the branch.
-  # Updates are grouped so only one branch a week needs the rebuild.
+  # Security updates (enabled in repo settings) still open PRs; an
+  # auto-triage rule in repo settings limits them to severity >= high.
+  # Those PRs still need a manual dist rebuild before merging.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 0
     groups:
-      npm:
+      npm-security:
+        applies-to: security-updates
         patterns:
           - "*"
 
