@@ -17,8 +17,13 @@ updates:
         patterns:
           - "*"
 
-  # Covers the workflows and the pinned actions in action.yml.
+  # Covers the workflows and the pinned actions in action.yml. Grouped so
+  # e.g. codeql-action init/analyze bumps land in one PR instead of two.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
