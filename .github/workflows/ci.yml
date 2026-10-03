@@ -65,7 +65,7 @@ jobs:
         run: test "${{ steps.incompatible.outcome }}" = "failure"
 
   release:
-    needs: e2e
+    needs: [test, e2e, self-test]
     if: github.event_name == 'push' && github.repository == '0xmichalis/storage-layout-action'
     runs-on: ubuntu-latest
     permissions:
