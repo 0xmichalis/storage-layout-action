@@ -2,10 +2,17 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 import {checkCompatibility} from './compare'
-import {ContractSpec, resolveContractSet} from './contracts'
+import {ContractSpec, resolveContractSet, resolveRemovedContracts} from './contracts'
 import {forgeVersion, inspectLayout} from './forge'
 import * as gha from './gha'
-import {fileAtCommit, gitContext, pickBaseCandidate, resolveBaseCommit, ResolvedBase} from './git'
+import {
+  fileAtCommit,
+  gitContext,
+  pickBaseCandidate,
+  resolveBaseCommit,
+  ResolvedBase,
+  snapshotsAtCommit
+} from './git'
 import {deepEqual, diffLayouts, normalizeLayout, parseLayout} from './layout'
 import {NormalizedLayout} from './types'
 
@@ -50,21 +57,39 @@ function checkContract(context: CheckContext, spec: ContractSpec): ContractOutco
     compatibilityDetail: ''
   }
 
+  const baseContent =
+    context.base !== undefined && context.snapshotDirFromRoot !== undefined
+      ? fileAtCommit(
+          context.workingDirectory,
+          context.base.sha,
+          path.posix.join(context.snapshotDirFromRoot, `${spec.name}.json`)
+        )
+      : undefined
+  const snapshotFile = path.join(context.snapshotDir, `${spec.name}.json`)
+  if (!fs.existsSync(snapshotFile)) {
+    outcome.freshness = 'missing'
+    outcome.freshnessDetail =
+      baseContent !== undefined
+        ? `${spec.name}: snapshot deleted. Deleting a snapshot stops the storage check; restore it, or list the contract in \`removed-contracts\` if it was retired.`
+        : `No snapshot found for ${spec.name}. Create one and commit it:\n  ${regenCommand(context, spec)}`
+  }
+
   let current: NormalizedLayout
   try {
     current = normalizeLayout(inspectLayout(spec.target, context.workingDirectory))
   } catch (error) {
     outcome.freshness = 'error'
-    outcome.freshnessDetail = error instanceof Error ? error.message : String(error)
+    outcome.freshnessDetail = [
+      outcome.freshnessDetail,
+      error instanceof Error ? error.message : String(error)
+    ]
+      .filter(Boolean)
+      .join('\n')
     outcome.compatibilityDetail = 'skipped: could not extract the current storage layout'
     return outcome
   }
 
-  const snapshotFile = path.join(context.snapshotDir, `${spec.name}.json`)
-  if (!fs.existsSync(snapshotFile)) {
-    outcome.freshness = 'missing'
-    outcome.freshnessDetail = `No snapshot found for ${spec.name}. Create one and commit it:\n  ${regenCommand(context, spec)}`
-  } else {
+  if (fs.existsSync(snapshotFile)) {
     try {
       const snapshot = normalizeLayout(parseLayout(fs.readFileSync(snapshotFile, 'utf8')))
       if (!deepEqual(snapshot, current)) {
@@ -89,8 +114,6 @@ function checkContract(context: CheckContext, spec: ContractSpec): ContractOutco
     return outcome
   }
 
-  const baseSnapshotPath = path.posix.join(context.snapshotDirFromRoot, `${spec.name}.json`)
-  const baseContent = fileAtCommit(context.workingDirectory, context.base.sha, baseSnapshotPath)
   if (baseContent === undefined) {
     outcome.compatibility = 'new-contract'
     outcome.compatibilityDetail = `no snapshot at ${context.base.sha.slice(0, 12)}; nothing to compare against`
@@ -133,7 +156,11 @@ const COMPATIBILITY_LABELS: Record<Compatibility, string> = {
   error: '❌ error'
 }
 
-function reportOutcomes(context: CheckContext, outcomes: ContractOutcome[]): boolean {
+function reportOutcomes(
+  context: CheckContext,
+  outcomes: ContractOutcome[],
+  removed: string[]
+): boolean {
   const summary: string[] = ['## Storage layout check', '']
   summary.push(
     context.base !== undefined
@@ -141,6 +168,7 @@ function reportOutcomes(context: CheckContext, outcomes: ContractOutcome[]): boo
       : `Compatibility check skipped: ${context.baseSkipReason ?? 'no base to compare against'}`
   )
   summary.push('', '| Contract | Snapshot | Compatibility |', '| --- | --- | --- |')
+  for (const name of removed) summary.push(`| ${name} | 🗑️ removed | ⏭️ skipped |`)
 
   let failed = false
   for (const outcome of outcomes) {
@@ -200,6 +228,7 @@ function fail(message: string): void {
 
 export function main(): void {
   const contractsInput = gha.getInput('contracts')
+  const removedInput = gha.getInput('removed-contracts')
   const snapshotDirInput = gha.getInput('storage-layout-path', 'storage-layouts')
   const workingDirectoryInput = gha.getInput('working-directory', '.')
   const baseInput = gha.getInput('base')
@@ -221,27 +250,6 @@ export function main(): void {
   gha.info(`Using ${version}`)
 
   const snapshotDir = path.resolve(workingDirectory, snapshotDirInput)
-  let specs: ContractSpec[]
-  try {
-    specs = resolveContractSet(contractsInput, snapshotDir)
-  } catch (error) {
-    fail(error instanceof Error ? error.message : String(error))
-    return
-  }
-  if (specs.length === 0) {
-    fail(
-      `No contracts to check: the \`contracts\` input is empty and '${toPosix(
-        path.relative(workingDirectory, snapshotDir)
-      )}' contains no snapshots. Bootstrap the snapshots (once per contract) with:\n` +
-        `  mkdir -p ${toPosix(path.relative(workingDirectory, snapshotDir))}\n` +
-        `  forge inspect <Contract> storage-layout --json > ${toPosix(
-          path.relative(workingDirectory, snapshotDir)
-        )}/<Contract>.json\n` +
-        `and commit the results, or set the \`contracts\` input.`
-    )
-    return
-  }
-
   const context: CheckContext = {
     workingDirectory,
     snapshotDir,
@@ -283,6 +291,39 @@ export function main(): void {
     gha.notice(`Compatibility check skipped: ${context.baseSkipReason}`)
   }
 
+  let specs: ContractSpec[]
+  let removed: string[] = []
+  try {
+    const baseNames =
+      context.base !== undefined && context.snapshotDirFromRoot !== undefined
+        ? snapshotsAtCommit(workingDirectory, context.base.sha, context.snapshotDirFromRoot)
+        : []
+    specs = resolveContractSet(contractsInput, snapshotDir, baseNames)
+    if (context.base !== undefined) {
+      const removals = resolveRemovedContracts(removedInput, snapshotDir, baseNames)
+      removed = removals.removed
+      for (const name of removals.unknown)
+        gha.notice(`Removed contract '${name}' has no base snapshot; ignored.`)
+      specs = specs.filter(spec => !removed.includes(spec.name))
+    }
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error))
+    return
+  }
+  if (specs.length === 0 && removed.length === 0) {
+    fail(
+      `No contracts to check: the \`contracts\` input is empty and '${toPosix(
+        path.relative(workingDirectory, snapshotDir)
+      )}' contains no snapshots. Bootstrap the snapshots (once per contract) with:\n` +
+        `  mkdir -p ${toPosix(path.relative(workingDirectory, snapshotDir))}\n` +
+        `  forge inspect <Contract> storage-layout --json > ${toPosix(
+          path.relative(workingDirectory, snapshotDir)
+        )}/<Contract>.json\n` +
+        `and commit the results, or set the \`contracts\` input.`
+    )
+    return
+  }
+
   const outcomes: ContractOutcome[] = []
   for (const spec of specs) {
     gha.startGroup(`Checking ${spec.name}`)
@@ -295,7 +336,7 @@ export function main(): void {
     outcomes.push(outcome)
   }
 
-  if (reportOutcomes(context, outcomes)) {
+  if (reportOutcomes(context, outcomes, removed)) {
     process.exitCode = 1
     gha.info('Storage layout check failed.')
   } else {

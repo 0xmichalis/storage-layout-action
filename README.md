@@ -59,7 +59,7 @@ mkdir -p storage-layouts
 forge inspect MyVault storage-layout --json > storage-layouts/MyVault.json
 ```
 
-Every contract with a snapshot in `storage-layouts/` is checked
+Every contract with a snapshot in `storage-layouts/` at the base or in the current tree is checked
 automatically — adding a contract to the check means adding its snapshot.
 The `contracts` input is only needed to bootstrap from CI error messages or
 to disambiguate contracts that share a name across files (fully qualified
@@ -79,11 +79,20 @@ compatibility check fails if the new layout is not upgrade-safe relative to
 the base branch — so an unsafe change cannot be merged by regenerating the
 snapshot.
 
+Deleting or renaming a base snapshot also fails the check. To retire a contract,
+delete its snapshot and list its bare name in `removed-contracts`. This deliberately
+skips its compatibility check and records the removal in the summary. A removal
+whose snapshot still exists is an error; a name without a base snapshot is ignored
+with a notice. Review changes to this input as carefully as the storage layouts.
+Without a compatibility base, only the current snapshots and `contracts` input
+are checked and `removed-contracts` has no effect.
+
 ## Inputs
 
 | Input | Default | Description |
 | --- | --- | --- |
 | `contracts` | `''` | Comma- or newline-separated contracts to check in addition to the ones discovered from snapshots. Bare names (`Vault`) or fully qualified names (`src/Vault.sol:Vault`). |
+| `removed-contracts` | `''` | Comma- or newline-separated bare names deliberately retired from the base. Their current snapshots must be absent. |
 | `storage-layout-path` | `storage-layouts` | Directory holding the committed snapshots, relative to `working-directory`. |
 | `working-directory` | `.` | Root of the Foundry project, relative to the repository checkout. |
 | `base` | `''` | Git ref or commit providing the reference snapshots for the compatibility check. Overrides the automatic choice. |
