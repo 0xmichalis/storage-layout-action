@@ -21,6 +21,13 @@ inputs:
       `working-directory`
     required: false
     default: 'storage-layouts'
+  removed-contracts:
+    description: >-
+      Comma- or newline-separated bare contract names deliberately retired from
+      the base. Their snapshots must be absent from the current tree. Deleting
+      a base snapshot without this input fails the check.
+    required: false
+    default: ''
   working-directory:
     description: 'Root of the Foundry project, relative to the repository checkout'
     required: false
@@ -61,6 +68,7 @@ runs:
     - shell: bash
       env:
         INPUT_CONTRACTS: ${{ inputs.contracts }}
+        INPUT_REMOVED_CONTRACTS: ${{ inputs.removed-contracts }}
         INPUT_STORAGE_LAYOUT_PATH: ${{ inputs.storage-layout-path }}
         INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
         INPUT_BASE: ${{ inputs.base }}

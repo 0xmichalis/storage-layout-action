@@ -95,6 +95,28 @@ prepend_var
 regen Vault
 run_case incompatible-insert 1 'Inserted `sneaky`' INPUT_BASE="$BASE_SHA"
 
+new_repo deleted
+prepend_var
+rm "$CASE_DIR/storage-layouts/Vault.json"
+run_case deleted-incompatible-snapshot 1 'Inserted `sneaky`' INPUT_BASE="$BASE_SHA"
+run_case deleted-snapshot-message 1 'snapshot deleted' INPUT_BASE="$BASE_SHA"
+run_case deliberate-removal 0 'passed for 1 contract(s)' INPUT_BASE="$BASE_SHA" INPUT_REMOVED_CONTRACTS=Vault
+
+new_repo all-deleted
+rm "$CASE_DIR/storage-layouts/"*.json
+run_case all-snapshots-deleted 1 'snapshot deleted' INPUT_BASE="$BASE_SHA"
+run_case all-contracts-retired 0 'passed for 0 contract(s)' INPUT_BASE="$BASE_SHA" INPUT_REMOVED_CONTRACTS='Vault,Registry'
+
+new_repo removal-input
+run_case removal-still-present 1 'still has a snapshot' INPUT_BASE="$BASE_SHA" INPUT_REMOVED_CONTRACTS=Vault
+run_case unknown-removal 0 'has no base snapshot' INPUT_BASE="$BASE_SHA" INPUT_REMOVED_CONTRACTS=Unknown
+
+new_repo contract-renamed
+sed -i 's/contract Vault/contract RenamedVault/' "$CASE_DIR/src/Vault.sol"
+rm "$CASE_DIR/storage-layouts/Vault.json"
+regen RenamedVault
+run_case renamed-contract 1 'snapshot deleted' INPUT_BASE="$BASE_SHA"
+
 new_repo rename
 sed -i 's/uint256 public totalShares;/uint256 public sharesTotal;/' "$CASE_DIR/src/Vault.sol"
 regen Vault

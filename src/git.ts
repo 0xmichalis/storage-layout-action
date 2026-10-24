@@ -118,3 +118,18 @@ export function fileAtCommit(cwd: string, sha: string, repoRelPath: string): str
   const result = run('git', ['show', `${sha}:${repoRelPath}`], cwd)
   return result.ok ? result.stdout : undefined
 }
+
+/** Snapshot names at the base, including snapshots absent from the working tree. */
+export function snapshotsAtCommit(cwd: string, sha: string, snapshotDir: string): string[] {
+  const result = run('git', ['ls-tree', '-z', '--name-only', `${sha}:${snapshotDir || '.'}`], cwd)
+  if (!result.ok) {
+    if (run('git', ['cat-file', '-e', `${sha}:${snapshotDir || '.'}`], cwd).ok) {
+      throw new Error(`Could not list base snapshots in '${snapshotDir}'`)
+    }
+    return []
+  }
+  return result.stdout
+    .split('\0')
+    .filter(file => file.endsWith('.json'))
+    .map(file => file.slice(0, -5))
+}

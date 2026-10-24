@@ -4,7 +4,13 @@ import * as os from 'os'
 import * as path from 'path'
 import {afterEach, beforeEach, describe, expect, it} from 'vitest'
 
-import {fileAtCommit, gitContext, pickBaseCandidate, resolveBaseCommit} from '../src/git'
+import {
+  fileAtCommit,
+  gitContext,
+  pickBaseCandidate,
+  resolveBaseCommit,
+  snapshotsAtCommit
+} from '../src/git'
 
 describe('pickBaseCandidate', () => {
   const defaults = {baseInput: '', eventName: '', baseRef: '', eventPayload: {}}
@@ -94,6 +100,11 @@ describe('git operations', () => {
 
     expect(fileAtCommit(repo, sha, 'contracts/storage-layouts/Vault.json')).toBe('{"v":1}')
     expect(fileAtCommit(repo, sha, 'contracts/storage-layouts/Missing.json')).toBeUndefined()
+    expect(snapshotsAtCommit(repo, sha, 'contracts/storage-layouts')).toEqual(['Vault'])
+    expect(snapshotsAtCommit(repo, sha, 'missing')).toEqual([])
+    expect(snapshotsAtCommit(repo, sha, '')).toEqual([])
+    fs.rmSync(path.join(repo, 'contracts', 'storage-layouts'), {recursive: true})
+    expect(snapshotsAtCommit(repo, sha, 'contracts/storage-layouts')).toEqual(['Vault'])
   })
 
   it('resolves local refs without an origin remote', () => {

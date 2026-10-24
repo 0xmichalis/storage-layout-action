@@ -19554,7 +19554,7 @@ var require_buffer_list = __commonJS({
         }
       }, {
         key: "join",
-        value: function join2(s) {
+        value: function join3(s) {
           if (this.length === 0) return "";
           var p = this.head;
           var ret = "" + p.data;
@@ -39754,8 +39754,12 @@ function parseEntry(entry) {
   }
   return { name, target: entry };
 }
-function resolveContractSet(contractsInput, snapshotDir) {
+function resolveContractSet(contractsInput, snapshotDir, baseNames = []) {
   const specs = /* @__PURE__ */ new Map();
+  for (const name of baseNames) {
+    if (!CONTRACT_NAME.test(name)) throw new Error(`invalid base snapshot contract name '${name}'`);
+    specs.set(name, { name, target: name });
+  }
   if (fs.existsSync(snapshotDir)) {
     for (const file of fs.readdirSync(snapshotDir).sort()) {
       if (!file.endsWith(".json")) continue;
@@ -39781,6 +39785,26 @@ function resolveContractSet(contractsInput, snapshotDir) {
     specs.set(spec.name, spec);
   }
   return [...specs.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+function resolveRemovedContracts(input, snapshotDir, baseNames) {
+  const removed = [];
+  const unknown = [];
+  const names = new Set(
+    input.split(/[\n,]/).map((entry) => entry.trim()).filter(Boolean)
+  );
+  for (const name of names) {
+    if (!CONTRACT_NAME.test(name)) {
+      throw new Error(`invalid removed contract '${name}': expected a bare contract name`);
+    }
+    if (fs.existsSync(path.join(snapshotDir, `${name}.json`))) {
+      throw new Error(
+        `removed contract '${name}' still has a snapshot; remove it or clear \`removed-contracts\``
+      );
+    }
+    if (baseNames.includes(name)) removed.push(name);
+    else unknown.push(name);
+  }
+  return { removed, unknown };
 }
 
 // src/layout.ts
@@ -40066,6 +40090,16 @@ function fileAtCommit(cwd, sha, repoRelPath) {
   const result = run("git", ["show", `${sha}:${repoRelPath}`], cwd);
   return result.ok ? result.stdout : void 0;
 }
+function snapshotsAtCommit(cwd, sha, snapshotDir) {
+  const result = run("git", ["ls-tree", "-z", "--name-only", `${sha}:${snapshotDir || "."}`], cwd);
+  if (!result.ok) {
+    if (run("git", ["cat-file", "-e", `${sha}:${snapshotDir || "."}`], cwd).ok) {
+      throw new Error(`Could not list base snapshots in '${snapshotDir}'`);
+    }
+    return [];
+  }
+  return result.stdout.split("\0").filter((file) => file.endsWith(".json")).map((file) => file.slice(0, -5));
+}
 
 // src/main.ts
 var toPosix = (value) => value.split(path2.sep).join("/");
@@ -40083,21 +40117,30 @@ function checkContract(context, spec) {
     compatibility: "skipped",
     compatibilityDetail: ""
   };
+  const baseContent = context.base !== void 0 && context.snapshotDirFromRoot !== void 0 ? fileAtCommit(
+    context.workingDirectory,
+    context.base.sha,
+    path2.posix.join(context.snapshotDirFromRoot, `${spec.name}.json`)
+  ) : void 0;
+  const snapshotFile = path2.join(context.snapshotDir, `${spec.name}.json`);
+  if (!fs3.existsSync(snapshotFile)) {
+    outcome.freshness = "missing";
+    outcome.freshnessDetail = baseContent !== void 0 ? `${spec.name}: snapshot deleted. Deleting a snapshot stops the storage check; restore it, or list the contract in \`removed-contracts\` if it was retired.` : `No snapshot found for ${spec.name}. Create one and commit it:
+  ${regenCommand(context, spec)}`;
+  }
   let current;
   try {
     current = normalizeLayout(inspectLayout(spec.target, context.workingDirectory));
   } catch (error2) {
     outcome.freshness = "error";
-    outcome.freshnessDetail = error2 instanceof Error ? error2.message : String(error2);
+    outcome.freshnessDetail = [
+      outcome.freshnessDetail,
+      error2 instanceof Error ? error2.message : String(error2)
+    ].filter(Boolean).join("\n");
     outcome.compatibilityDetail = "skipped: could not extract the current storage layout";
     return outcome;
   }
-  const snapshotFile = path2.join(context.snapshotDir, `${spec.name}.json`);
-  if (!fs3.existsSync(snapshotFile)) {
-    outcome.freshness = "missing";
-    outcome.freshnessDetail = `No snapshot found for ${spec.name}. Create one and commit it:
-  ${regenCommand(context, spec)}`;
-  } else {
+  if (fs3.existsSync(snapshotFile)) {
     try {
       const snapshot = normalizeLayout(parseLayout(fs3.readFileSync(snapshotFile, "utf8")));
       if (!deepEqual(snapshot, current)) {
@@ -40120,8 +40163,6 @@ Regenerate it and commit the result:
     outcome.compatibilityDetail = `skipped: ${context.baseSkipReason ?? "no base to compare against"}`;
     return outcome;
   }
-  const baseSnapshotPath = path2.posix.join(context.snapshotDirFromRoot, `${spec.name}.json`);
-  const baseContent = fileAtCommit(context.workingDirectory, context.base.sha, baseSnapshotPath);
   if (baseContent === void 0) {
     outcome.compatibility = "new-contract";
     outcome.compatibilityDetail = `no snapshot at ${context.base.sha.slice(0, 12)}; nothing to compare against`;
@@ -40157,12 +40198,13 @@ var COMPATIBILITY_LABELS = {
   skipped: "\u23ED\uFE0F skipped",
   error: "\u274C error"
 };
-function reportOutcomes(context, outcomes) {
+function reportOutcomes(context, outcomes, removed) {
   const summary = ["## Storage layout check", ""];
   summary.push(
     context.base !== void 0 ? `Compatibility base: \`${context.base.sha}\` (${context.base.description})` : `Compatibility check skipped: ${context.baseSkipReason ?? "no base to compare against"}`
   );
   summary.push("", "| Contract | Snapshot | Compatibility |", "| --- | --- | --- |");
+  for (const name of removed) summary.push(`| ${name} | \u{1F5D1}\uFE0F removed | \u23ED\uFE0F skipped |`);
   let failed = false;
   for (const outcome of outcomes) {
     const annotationFile = context.snapshotDirFromRoot === void 0 ? void 0 : path2.posix.join(context.snapshotDirFromRoot, `${outcome.spec.name}.json`);
@@ -40213,6 +40255,7 @@ function fail(message) {
 }
 function main() {
   const contractsInput = getInput("contracts");
+  const removedInput = getInput("removed-contracts");
   const snapshotDirInput = getInput("storage-layout-path", "storage-layouts");
   const workingDirectoryInput = getInput("working-directory", ".");
   const baseInput = getInput("base");
@@ -40231,26 +40274,6 @@ function main() {
   }
   info(`Using ${version}`);
   const snapshotDir = path2.resolve(workingDirectory, snapshotDirInput);
-  let specs;
-  try {
-    specs = resolveContractSet(contractsInput, snapshotDir);
-  } catch (error2) {
-    fail(error2 instanceof Error ? error2.message : String(error2));
-    return;
-  }
-  if (specs.length === 0) {
-    fail(
-      `No contracts to check: the \`contracts\` input is empty and '${toPosix(
-        path2.relative(workingDirectory, snapshotDir)
-      )}' contains no snapshots. Bootstrap the snapshots (once per contract) with:
-  mkdir -p ${toPosix(path2.relative(workingDirectory, snapshotDir))}
-  forge inspect <Contract> storage-layout --json > ${toPosix(
-        path2.relative(workingDirectory, snapshotDir)
-      )}/<Contract>.json
-and commit the results, or set the \`contracts\` input.`
-    );
-    return;
-  }
   const context = {
     workingDirectory,
     snapshotDir,
@@ -40289,6 +40312,35 @@ and commit the results, or set the \`contracts\` input.`
   } else {
     notice(`Compatibility check skipped: ${context.baseSkipReason}`);
   }
+  let specs;
+  let removed = [];
+  try {
+    const baseNames = context.base !== void 0 && context.snapshotDirFromRoot !== void 0 ? snapshotsAtCommit(workingDirectory, context.base.sha, context.snapshotDirFromRoot) : [];
+    specs = resolveContractSet(contractsInput, snapshotDir, baseNames);
+    if (context.base !== void 0) {
+      const removals = resolveRemovedContracts(removedInput, snapshotDir, baseNames);
+      removed = removals.removed;
+      for (const name of removals.unknown)
+        notice(`Removed contract '${name}' has no base snapshot; ignored.`);
+      specs = specs.filter((spec) => !removed.includes(spec.name));
+    }
+  } catch (error2) {
+    fail(error2 instanceof Error ? error2.message : String(error2));
+    return;
+  }
+  if (specs.length === 0 && removed.length === 0) {
+    fail(
+      `No contracts to check: the \`contracts\` input is empty and '${toPosix(
+        path2.relative(workingDirectory, snapshotDir)
+      )}' contains no snapshots. Bootstrap the snapshots (once per contract) with:
+  mkdir -p ${toPosix(path2.relative(workingDirectory, snapshotDir))}
+  forge inspect <Contract> storage-layout --json > ${toPosix(
+        path2.relative(workingDirectory, snapshotDir)
+      )}/<Contract>.json
+and commit the results, or set the \`contracts\` input.`
+    );
+    return;
+  }
   const outcomes = [];
   for (const spec of specs) {
     startGroup(`Checking ${spec.name}`);
@@ -40300,7 +40352,7 @@ and commit the results, or set the \`contracts\` input.`
     endGroup();
     outcomes.push(outcome);
   }
-  if (reportOutcomes(context, outcomes)) {
+  if (reportOutcomes(context, outcomes, removed)) {
     process.exitCode = 1;
     info("Storage layout check failed.");
   } else {

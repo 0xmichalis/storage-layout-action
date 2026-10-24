@@ -25,11 +25,19 @@ function parseEntry(entry: string): ContractSpec {
 
 /**
  * Resolves the set of contracts to check: the union of the explicit
- * `contracts` input and the contracts discovered from existing snapshot
+ * `contracts` input and the contracts discovered from current and base snapshot
  * files. Explicit entries win so fully qualified names can disambiguate.
  */
-export function resolveContractSet(contractsInput: string, snapshotDir: string): ContractSpec[] {
+export function resolveContractSet(
+  contractsInput: string,
+  snapshotDir: string,
+  baseNames: string[] = []
+): ContractSpec[] {
   const specs = new Map<string, ContractSpec>()
+  for (const name of baseNames) {
+    if (!CONTRACT_NAME.test(name)) throw new Error(`invalid base snapshot contract name '${name}'`)
+    specs.set(name, {name, target: name})
+  }
 
   if (fs.existsSync(snapshotDir)) {
     for (const file of fs.readdirSync(snapshotDir).sort()) {
@@ -61,4 +69,32 @@ export function resolveContractSet(contractsInput: string, snapshotDir: string):
   }
 
   return [...specs.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+export function resolveRemovedContracts(
+  input: string,
+  snapshotDir: string,
+  baseNames: string[]
+): {removed: string[]; unknown: string[]} {
+  const removed: string[] = []
+  const unknown: string[] = []
+  const names = new Set(
+    input
+      .split(/[\n,]/)
+      .map(entry => entry.trim())
+      .filter(Boolean)
+  )
+  for (const name of names) {
+    if (!CONTRACT_NAME.test(name)) {
+      throw new Error(`invalid removed contract '${name}': expected a bare contract name`)
+    }
+    if (fs.existsSync(path.join(snapshotDir, `${name}.json`))) {
+      throw new Error(
+        `removed contract '${name}' still has a snapshot; remove it or clear \`removed-contracts\``
+      )
+    }
+    if (baseNames.includes(name)) removed.push(name)
+    else unknown.push(name)
+  }
+  return {removed, unknown}
 }

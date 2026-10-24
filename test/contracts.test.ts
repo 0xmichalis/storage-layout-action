@@ -3,7 +3,7 @@ import * as os from 'os'
 import * as path from 'path'
 import {afterEach, beforeEach, describe, expect, it} from 'vitest'
 
-import {resolveContractSet} from '../src/contracts'
+import {resolveContractSet, resolveRemovedContracts} from '../src/contracts'
 
 describe('resolveContractSet', () => {
   let dir: string
@@ -50,6 +50,39 @@ describe('resolveContractSet', () => {
   it('returns an empty set when there is nothing to check', () => {
     expect(resolveContractSet('', dir)).toEqual([])
     expect(resolveContractSet('', path.join(dir, 'missing'))).toEqual([])
+  })
+
+  it('includes base snapshots even when the current snapshots were deleted', () => {
+    fs.writeFileSync(path.join(dir, 'Registry.json'), '{}')
+    expect(resolveContractSet('', dir, ['Vault', 'Registry'])).toEqual([
+      {name: 'Registry', target: 'Registry'},
+      {name: 'Vault', target: 'Vault'}
+    ])
+    expect(resolveContractSet('src/Vault.sol:Vault', dir, ['Vault'])).toEqual([
+      {name: 'Registry', target: 'Registry'},
+      {name: 'Vault', target: 'src/Vault.sol:Vault'}
+    ])
+  })
+
+  it('exempts only deliberate removals that had a base snapshot', () => {
+    expect(resolveRemovedContracts('Vault, Unknown\nVault', dir, ['Vault'])).toEqual({
+      removed: ['Vault'],
+      unknown: ['Unknown']
+    })
+    expect(resolveRemovedContracts('', dir, ['Vault'])).toEqual({removed: [], unknown: []})
+  })
+
+  it('rejects removals whose snapshots are still present', () => {
+    fs.writeFileSync(path.join(dir, 'Vault.json'), '{}')
+    expect(() => resolveRemovedContracts('Vault', dir, ['Vault'])).toThrow(
+      "removed contract 'Vault' still has a snapshot"
+    )
+  })
+
+  it('accepts only bare names for removals', () => {
+    expect(() => resolveRemovedContracts('src/Vault.sol:Vault', dir, ['Vault'])).toThrow(
+      'expected a bare contract name'
+    )
   })
 
   it('rejects duplicate contract names', () => {
