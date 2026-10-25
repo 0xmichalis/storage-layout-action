@@ -39825,7 +39825,15 @@ function normalizeLayout(raw) {
   });
   const types = {};
   for (const [id, type] of Object.entries(raw.types ?? {})) {
-    types[(0, import_upgrades_core2.stabilizeTypeIdentifier)(id)] = normalizeType(type);
+    const key = (0, import_upgrades_core2.stabilizeTypeIdentifier)(id);
+    const normalized = normalizeType(type);
+    const previous = types[key];
+    if (previous !== void 0 && !deepEqual({ ...previous, label: void 0 }, { ...normalized, label: void 0 })) {
+      throw new Error(
+        `distinct types share the identifier ${key} (${previous.label} vs ${normalized.label}); the storage layout cannot be compared safely`
+      );
+    }
+    types[key] = normalized;
   }
   const layout = { storage, types };
   assertTypeReferencesResolve(layout);

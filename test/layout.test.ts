@@ -91,6 +91,61 @@ describe('normalizeLayout', () => {
       'layout references types with no definition: t_uint64'
     )
   })
+
+  it('rejects distinct same-named structs from different scopes', () => {
+    // solc scopes structs by contract: PoolA.Info and PoolB.Info share a
+    // short name but have distinct raw type ids. Reordering PoolB.Info's
+    // members must not disappear when both ids stabilize to one key.
+    const colliding: RawLayout = {
+      storage: [
+        {
+          label: 'poolA',
+          offset: 0,
+          slot: '0',
+          type: 't_struct(Info)6_storage',
+          contract: 'src/PoolA.sol:PoolA'
+        },
+        {
+          label: 'poolB',
+          offset: 0,
+          slot: '1',
+          type: 't_struct(Info)12_storage',
+          contract: 'src/PoolB.sol:PoolB'
+        }
+      ],
+      types: {
+        't_struct(Info)6_storage': {
+          encoding: 'inplace',
+          label: 'struct PoolA.Info',
+          numberOfBytes: '64',
+          members: [
+            {label: 'total', offset: 0, slot: '0', type: 't_uint256'},
+            {label: 'liquidity', offset: 0, slot: '1', type: 't_uint128'}
+          ]
+        },
+        't_struct(Info)12_storage': {
+          encoding: 'inplace',
+          label: 'struct PoolB.Info',
+          numberOfBytes: '64',
+          members: [
+            {label: 'liquidity', offset: 0, slot: '0', type: 't_uint128'},
+            {label: 'total', offset: 0, slot: '1', type: 't_uint256'}
+          ]
+        },
+        t_uint128: {encoding: 'inplace', label: 'uint128', numberOfBytes: '16'},
+        t_uint256: {encoding: 'inplace', label: 'uint256', numberOfBytes: '32'}
+      }
+    }
+    let message = ''
+    try {
+      normalizeLayout(colliding)
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+    expect(message).toBe(
+      'distinct types share the identifier t_struct(Info)storage (struct PoolA.Info vs struct PoolB.Info); the storage layout cannot be compared safely'
+    )
+  })
 })
 
 describe('deepEqual', () => {
