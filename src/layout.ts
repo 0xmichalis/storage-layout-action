@@ -25,7 +25,22 @@ export function normalizeLayout(raw: RawLayout): NormalizedLayout {
 
   const types: Record<string, NormalizedType> = {}
   for (const [id, type] of Object.entries(raw.types ?? {})) {
-    types[stabilizeTypeIdentifier(id)] = normalizeType(type)
+    const key = stabilizeTypeIdentifier(id)
+    const normalized = normalizeType(type)
+    // Stabilization drops the AST id, so distinct scoped types can share a
+    // key (struct PoolA.Info and struct PoolB.Info both become
+    // t_struct(Info)storage). Silently keeping one definition would hide
+    // changes to the other, so fail closed when the definitions differ.
+    const previous = types[key]
+    if (
+      previous !== undefined &&
+      !deepEqual({...previous, label: undefined}, {...normalized, label: undefined})
+    ) {
+      throw new Error(
+        `distinct types share the identifier ${key} (${previous.label} vs ${normalized.label}); the storage layout cannot be compared safely`
+      )
+    }
+    types[key] = normalized
   }
 
   const layout = {storage, types}
