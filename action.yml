@@ -15,6 +15,25 @@ inputs:
       listed.
     required: false
     default: ''
+  require-snapshots:
+    description: >-
+      Comma- or newline-separated `inherits:<Contract>` rules, with a bare
+      or fully qualified contract name. Every deployable contract under the
+      Foundry `src` directory that inherits a rule's contract, directly or
+      through a base contract, must also have a snapshot. Leave empty to
+      check only the contracts that have a snapshot or are listed in
+      `contracts`.
+    required: false
+    default: ''
+  exempt-contracts:
+    description: >-
+      Comma- or newline-separated contracts that `require-snapshots` does not
+      require, as bare names (every contract with that name) or fully
+      qualified names (`src/Clone.sol:Clone`). Use it for implementations
+      that are never upgraded in place, such as clone templates. A contract
+      with a snapshot is still checked.
+    required: false
+    default: ''
   storage-layout-path:
     description: >-
       Directory holding the committed storage layout snapshots, relative to
@@ -69,6 +88,8 @@ runs:
       env:
         INPUT_CONTRACTS: ${{ inputs.contracts }}
         INPUT_REMOVED_CONTRACTS: ${{ inputs.removed-contracts }}
+        INPUT_REQUIRE_SNAPSHOTS: ${{ inputs.require-snapshots }}
+        INPUT_EXEMPT_CONTRACTS: ${{ inputs.exempt-contracts }}
         INPUT_STORAGE_LAYOUT_PATH: ${{ inputs.storage-layout-path }}
         INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
         INPUT_BASE: ${{ inputs.base }}

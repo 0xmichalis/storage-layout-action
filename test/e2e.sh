@@ -67,6 +67,98 @@ append_var() {
     "$CASE_DIR/src/Vault.sol"
 }
 
+add_initializable() {
+  # Module inherits Initializable through an abstract base; MockModule lives
+  # outside src, so require-snapshots must not ask for it.
+  mkdir -p "$CASE_DIR/test"
+  cat >"$CASE_DIR/src/Initializable.sol" <<'EOF'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+abstract contract Initializable {
+    uint64 private _initialized;
+
+    event Initialized(uint64 version);
+
+    modifier initializer() {
+        _;
+        _initialized = 1;
+        emit Initialized(1);
+    }
+}
+EOF
+  cat >"$CASE_DIR/src/Module.sol" <<'EOF'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {Initializable} from "./Initializable.sol";
+
+abstract contract ModuleBase is Initializable {
+    uint256 public value;
+}
+
+contract Module is ModuleBase {
+    function initialize() external initializer {}
+}
+EOF
+  cat >"$CASE_DIR/test/MockModule.sol" <<'EOF'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {Initializable} from "../src/Initializable.sol";
+
+contract MockModule is Initializable {
+    function initialize() external initializer {}
+}
+EOF
+}
+
+add_inherits() {
+  # Thing, Other and Qualified reach UUPSLike, which declares no Initialized
+  # event, through an aliased import, a re-export file without contracts and
+  # a unit alias.
+  cat >"$CASE_DIR/src/Upgradeable.sol" <<'EOF'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+abstract contract UUPSLike {
+    address private _implementation;
+}
+EOF
+  cat >"$CASE_DIR/src/Facade.sol" <<'EOF'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "./Upgradeable.sol";
+EOF
+  cat >"$CASE_DIR/src/Thing.sol" <<'EOF'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {UUPSLike as Base} from "./Upgradeable.sol";
+
+contract Thing is Base {
+    uint256 public x;
+}
+EOF
+  cat >"$CASE_DIR/src/Other.sol" <<'EOF'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "./Facade.sol";
+
+contract Other is UUPSLike {}
+EOF
+  cat >"$CASE_DIR/src/Qualified.sol" <<'EOF'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "./Upgradeable.sol" as U;
+
+contract Qualified is U.UUPSLike {}
+EOF
+}
+
 prepend_var() {
   sed -i 's/address public manager;/uint256 public sneaky;\n    address public manager;/' \
     "$CASE_DIR/src/Vault.sol"
@@ -139,6 +231,69 @@ contract NewToken {
 EOF
 regen NewToken
 run_case new-contract-skipped 0 'passed for 3 contract(s)' INPUT_BASE="$BASE_SHA"
+
+new_repo require-initializable
+add_initializable
+run_case require-off-by-default 0 'passed for 2 contract(s)' INPUT_BASE="$BASE_SHA"
+run_case require-missing 1 'No snapshot found for Module' \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:Initializable
+run_case require-missing-hint 1 'list it in `exempt-contracts`' \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:Initializable
+run_case require-exempt 0 'passed for 2 contract(s)' \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:Initializable INPUT_EXEMPT_CONTRACTS=Module
+run_case require-exempt-unknown 1 "Exempt contract 'Unknown' matches no" \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:Initializable INPUT_EXEMPT_CONTRACTS=Unknown
+run_case exempt-without-require 0 'has no effect without `require-snapshots`' \
+  INPUT_BASE="$BASE_SHA" INPUT_EXEMPT_CONTRACTS=Module
+run_case require-invalid-value 1 'invalid `require-snapshots` rule' INPUT_REQUIRE_SNAPSHOTS=true
+regen Module
+run_case require-satisfied 0 'passed for 3 contract(s)' \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:Initializable
+
+# forge keeps out/Module.sol/Module.json after the rename; the build cache
+# does not, so only the renamed contract is required.
+sed -i 's/contract Module is/contract RenamedModule is/' "$CASE_DIR/src/Module.sol"
+rm "$CASE_DIR/storage-layouts/Module.json"
+regen RenamedModule
+run_case require-ignores-stale-artifacts 0 'passed for 3 contract(s)' \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:Initializable
+
+new_repo inherits
+add_inherits
+run_case inherits-aliased-import 1 'No snapshot found for Thing' \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:UUPSLike
+run_case inherits-reexport 1 'No snapshot found for Other' \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:UUPSLike
+run_case inherits-unit-alias 1 'No snapshot found for Qualified' \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:UUPSLike
+run_case inherits-reason 1 '(`inherits:UUPSLike`)' \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:UUPSLike
+run_case inherits-other-base 0 'passed for 2 contract(s)' \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:Initializable
+regen Thing
+regen Other
+regen Qualified
+run_case inherits-satisfied 0 'passed for 5 contract(s)' \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:UUPSLike
+run_case inherits-qualified-rule 0 'passed for 5 contract(s)' \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:src/Upgradeable.sol:UUPSLike
+
+# A plain `forge build` (another CI job, a developer) compiles Late without
+# an AST, and forge then treats that artifact as fresh for an --ast build:
+# discovery must force a rebuild.
+cat >"$CASE_DIR/src/Late.sol" <<'EOF'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {UUPSLike} from "./Upgradeable.sol";
+
+contract Late is UUPSLike {}
+EOF
+(cd "$CASE_DIR" && forge build -q)
+run_case inherits-forces-ast-rebuild 1 'rebuilding the project with --force' \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:UUPSLike
+run_case inherits-after-rebuild 1 'No snapshot found for Late' \
+  INPUT_BASE="$BASE_SHA" INPUT_REQUIRE_SNAPSHOTS=inherits:UUPSLike
 
 new_repo nested contracts
 run_case nested-working-directory 0 'passed for 2 contract(s)' INPUT_BASE="$BASE_SHA"
