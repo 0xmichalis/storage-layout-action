@@ -65,6 +65,55 @@ The `contracts` input is only needed to bootstrap from CI error messages or
 to disambiguate contracts that share a name across files (fully qualified
 names, e.g. `src/vaults/MyVault.sol:MyVault`).
 
+### Requiring snapshots for new upgradeable contracts
+
+By default a contract without a snapshot is not checked, so a new upgradeable
+contract is unprotected until someone remembers to add its snapshot. List the
+base contracts of your upgradeable contracts in `require-snapshots` to fail
+instead:
+
+```yaml
+      - uses: 0xmichalis/storage-layout-action@v0
+        with:
+          require-snapshots: inherits:Initializable
+          exempt-contracts: MyCloneTemplate
+```
+
+The action then builds the project and requires a snapshot for every deployable
+contract under the Foundry `src` directory that inherits a rule's contract,
+directly or through any number of base contracts. `inherits:Initializable`
+covers OpenZeppelin (any version, upgradeable or not) and Solady, which all
+name the contract `Initializable`. Add a rule per other base, such as
+`inherits:UUPSUpgradeable` or your own upgradeable base.
+
+A bare name matches any base contract with that name. A fully qualified name
+only matches that one, e.g. to tell OpenZeppelin's upgradeable and
+non-upgradeable `Initializable` apart:
+
+```yaml
+          require-snapshots: |
+            inherits:lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol:Initializable
+            inherits:MyUpgradeableBase
+```
+
+A contract does not inherit itself. Abstract contracts, interfaces and contracts
+outside `src` (tests, scripts, dependencies) are never required. Contracts come
+from the forge build cache, so artifacts that forge leaves behind after a rename
+or deletion are ignored.
+
+The inheritance comes from the AST, so the action builds with `--ast`. Base
+contracts are resolved by name through each file's imports (named, aliased,
+wholesale and `as` imports) and cross-checked against solc's linearization. A
+contract whose bases cannot all be resolved is required too, so the check fails
+closed. When forge reuses an artifact built without the AST, for example after a
+plain `forge build` in the same checkout, the action rebuilds once with
+`--force`.
+
+List contracts that are never upgraded in place, such as implementations only
+used behind immutable clones, in `exempt-contracts`. A bare name exempts every
+contract with that name, a fully qualified name only that one. An exempt
+contract that has a snapshot is still checked.
+
 ### Changing storage intentionally
 
 When a change to the layout is intended (appending a variable, consuming a
@@ -93,6 +142,8 @@ are checked and `removed-contracts` has no effect.
 | --- | --- | --- |
 | `contracts` | `''` | Comma- or newline-separated contracts to check in addition to the ones discovered from snapshots. Bare names (`Vault`) or fully qualified names (`src/Vault.sol:Vault`). |
 | `removed-contracts` | `''` | Comma- or newline-separated bare names deliberately retired from the base. Their current snapshots must be absent. |
+| `require-snapshots` | `''` | Comma- or newline-separated `inherits:<Contract>` rules: every deployable contract under `src` that inherits one of these contracts must have a snapshot. Empty checks only contracts with snapshots or listed in `contracts`. |
+| `exempt-contracts` | `''` | Comma- or newline-separated contracts `require-snapshots` does not require. Bare names exempt every contract with that name; fully qualified names only that one. |
 | `storage-layout-path` | `storage-layouts` | Directory holding the committed snapshots, relative to `working-directory`. |
 | `working-directory` | `.` | Root of the Foundry project, relative to the repository checkout. |
 | `base` | `''` | Git ref or commit providing the reference snapshots for the compatibility check. Overrides the automatic choice. |
@@ -124,4 +175,8 @@ The freshness check always runs. When a contract has no snapshot at the base
 - Snapshots may be committed exactly as `forge inspect` emits them; the
   freshness comparison ignores `astId` churn from unrelated source changes,
   so snapshots only need regenerating when the layout actually changes.
+- `require-snapshots` only finds contracts that inherit a listed contract.
+  Upgradeable contracts with no common base still need their snapshot added by
+  hand. It also needs the forge build cache, which is on by default
+  (`cache = true`), and the `--ast` build makes artifacts larger.
 - The runner needs Node.js 20+ on PATH (GitHub-hosted runners have it).

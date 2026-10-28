@@ -2,8 +2,15 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 import {checkCompatibility} from './compare'
-import {ContractSpec, resolveContractSet, resolveRemovedContracts} from './contracts'
-import {forgeVersion, inspectLayout} from './forge'
+import {
+  ContractSpec,
+  parseRequireRules,
+  resolveContractSet,
+  resolveRemovedContracts,
+  resolveRequiredContracts
+} from './contracts'
+import {DiscoveredContract, findRequiredContracts, MissingAstError, RequireRule} from './discover'
+import {forgeBuild, forgeConfig, forgeVersion, inspectLayout} from './forge'
 import * as gha from './gha'
 import {
   fileAtCommit,
@@ -71,7 +78,9 @@ function checkContract(context: CheckContext, spec: ContractSpec): ContractOutco
     outcome.freshnessDetail =
       baseContent !== undefined
         ? `${spec.name}: snapshot deleted. Deleting a snapshot stops the storage check; restore it, or list the contract in \`removed-contracts\` if it was retired.`
-        : `No snapshot found for ${spec.name}. Create one and commit it:\n  ${regenCommand(context, spec)}`
+        : `No snapshot found for ${spec.name}. Create one and commit it:\n  ${regenCommand(context, spec)}${
+            spec.reason !== undefined ? `\n${spec.reason}` : ''
+          }`
   }
 
   let current: NormalizedLayout
@@ -233,6 +242,14 @@ export function main(): void {
   const workingDirectoryInput = gha.getInput('working-directory', '.')
   const baseInput = gha.getInput('base')
   const unsafeAllowRenames = gha.getBooleanInput('unsafe-allow-renames', false)
+  const exemptInput = gha.getInput('exempt-contracts')
+  let rules: RequireRule[]
+  try {
+    rules = parseRequireRules(gha.getInput('require-snapshots'))
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error))
+    return
+  }
 
   const workingDirectory = path.resolve(process.cwd(), workingDirectoryInput)
   if (!fs.existsSync(path.join(workingDirectory, 'foundry.toml'))) {
@@ -291,6 +308,39 @@ export function main(): void {
     gha.notice(`Compatibility check skipped: ${context.baseSkipReason}`)
   }
 
+  let required: ContractSpec[] = []
+  if (rules.length > 0) {
+    gha.startGroup('Finding contracts that require a snapshot')
+    try {
+      forgeBuild(workingDirectory)
+      const config = forgeConfig(workingDirectory)
+      let found: DiscoveredContract[]
+      try {
+        found = findRequiredContracts(workingDirectory, config, rules)
+      } catch (error) {
+        if (!(error instanceof MissingAstError)) throw error
+        gha.info(`${error.message}; rebuilding the project with --force`)
+        forgeBuild(workingDirectory, true)
+        found = findRequiredContracts(workingDirectory, config, rules)
+      }
+      const resolution = resolveRequiredContracts(found, exemptInput)
+      required = resolution.required
+      for (const spec of required) gha.info(`snapshot required: ${spec.target}`)
+      for (const target of resolution.unmatched) {
+        gha.notice(
+          `Exempt contract '${target}' matches no \`require-snapshots\` rule under '${config.src}'; ignored.`
+        )
+      }
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error))
+      return
+    } finally {
+      gha.endGroup()
+    }
+  } else if (exemptInput !== '') {
+    gha.notice('`exempt-contracts` has no effect without `require-snapshots`.')
+  }
+
   let specs: ContractSpec[]
   let removed: string[] = []
   try {
@@ -298,7 +348,7 @@ export function main(): void {
       context.base !== undefined && context.snapshotDirFromRoot !== undefined
         ? snapshotsAtCommit(workingDirectory, context.base.sha, context.snapshotDirFromRoot)
         : []
-    specs = resolveContractSet(contractsInput, snapshotDir, baseNames)
+    specs = resolveContractSet(contractsInput, snapshotDir, baseNames, required)
     if (context.base !== undefined) {
       const removals = resolveRemovedContracts(removedInput, snapshotDir, baseNames)
       removed = removals.removed
