@@ -17,12 +17,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: Set up Node dependencies
+        uses: 0xmichalis/repo-tooling/actions/setup-node@ed1b0c7db2764f49a7144c7eff80351a90b65ded # v1.0.0
         with:
-          node-version: 22
-          cache: npm
-      # Audit the lockfile before installing. No dependency needs its install
-      # script, so CI skips them all.
+          node-version: '22'
+          package-manager: npm
+          install-dependencies: 'false'
+
       - run: npm audit --package-lock-only --audit-level=high
       - run: npm ci --ignore-scripts
       - run: npm audit signatures
@@ -37,10 +38,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - name: Set up Node dependencies
+        uses: 0xmichalis/repo-tooling/actions/setup-node@ed1b0c7db2764f49a7144c7eff80351a90b65ded # v1.0.0
         with:
-          node-version: 22
-          cache: npm
+          node-version: '22'
+          package-manager: npm
+          install-dependencies: 'false'
+
       - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
         with:
           cache: false
