@@ -21,9 +21,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      # Audit the lockfile before install scripts run.
+      # Audit the lockfile before installing. No dependency needs its install
+      # script, so CI skips them all.
       - run: npm audit --package-lock-only --audit-level=high
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm audit signatures
       - run: npm run format:check
       - run: npm run typecheck
@@ -43,7 +44,7 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
         with:
           cache: false
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm run build
       - run: bash test/e2e.sh
 
