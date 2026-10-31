@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Weekly run catches newly published advisories and forge output changes
+  # between pushes.
+  schedule:
+    - cron: "0 6 * * 1"
 
 permissions:
   contents: read
@@ -17,7 +21,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # Audit the lockfile before install scripts run.
+      - run: npm audit --package-lock-only --audit-level=high
       - run: npm ci
+      - run: npm audit signatures
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm test

@@ -23,6 +23,9 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Hold new action releases for a week before proposing the pinned SHA.
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         patterns:
