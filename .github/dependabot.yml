@@ -10,6 +10,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: saturday
     open-pull-requests-limit: 0
     groups:
       npm-security:
@@ -23,6 +24,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: saturday
     # Hold new action releases for a week before proposing the pinned SHA.
     cooldown:
       default-days: 7
