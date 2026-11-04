@@ -164,6 +164,35 @@ prepend_var() {
     "$CASE_DIR/src/Vault.sol"
 }
 
+add_namespaced() {
+  # The namespace id and slot are EIP-7201's own example.
+  cat >"$CASE_DIR/src/Namespaced.sol" <<'EOF'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract Namespaced {
+    /// @custom:storage-location erc7201:example.main
+    struct MainStorage {
+        uint256 total;
+        mapping(address => uint256) balances;
+    }
+
+    bytes32 private constant MAIN_STORAGE_LOCATION =
+        0x183a6125c38840424c4a85fa12bab2ab606c4b6d0e7cc73c0c06ba5300eab500;
+
+    address public owner;
+
+    function total() external view returns (uint256) {
+        MainStorage storage $;
+        assembly {
+            $.slot := MAIN_STORAGE_LOCATION
+        }
+        return $.total;
+    }
+}
+EOF
+}
+
 new_repo fresh
 run_case fresh-and-compatible 0 'passed for 2 contract(s)' INPUT_BASE="$BASE_SHA"
 run_case no-base-event 0 'Compatibility check skipped'
@@ -219,6 +248,19 @@ new_repo inputs
 run_case missing-snapshot 1 'No snapshot found for Dup' INPUT_BASE="$BASE_SHA" INPUT_CONTRACTS='src/a/Dup.sol:Dup'
 run_case ambiguous-name 1 'Multiple contracts found' INPUT_BASE="$BASE_SHA" INPUT_CONTRACTS='Dup'
 run_case invalid-entry 1 'invalid contract entry' INPUT_CONTRACTS='-rf'
+
+# forge 1.9+ reports ERC-7201 namespaces with scoped type identifiers; the
+# namespace is compared on its own, append-only like plain storage.
+new_repo namespaced
+add_namespaced
+regen Namespaced
+git -C "$CASE_DIR" add -A
+git -C "$CASE_DIR" commit -q -m namespaced
+BASE_SHA="$(git -C "$CASE_DIR" rev-parse HEAD)"
+run_case namespaced-compatible 0 'passed for 3 contract(s)' INPUT_BASE="$BASE_SHA"
+sed -i 's/uint256 total;/uint256 sneaky;\n        uint256 total;/' "$CASE_DIR/src/Namespaced.sol"
+regen Namespaced
+run_case namespaced-insert 1 'Inserted `sneaky`' INPUT_BASE="$BASE_SHA"
 
 new_repo new-contract
 cat >"$CASE_DIR/src/NewToken.sol" <<'EOF'

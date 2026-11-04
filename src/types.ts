@@ -33,6 +33,8 @@ export interface RawType {
 export interface RawLayout {
   storage: RawStorageItem[]
   types?: Record<string, RawType> | null
+  /** Only in normalized snapshots; forge reports namespaced items in `storage`. */
+  namespaces?: Record<string, RawStorageItem[]>
 }
 
 /**
@@ -68,4 +70,10 @@ export interface NormalizedType {
 export interface NormalizedLayout {
   storage: NormalizedStorageItem[]
   types: Record<string, NormalizedType>
+  /**
+   * ERC-7201 namespaced storage keyed by storage location
+   * (`erc7201:<namespace id>`), as the OpenZeppelin comparison expects.
+   * Omitted when the contract has no namespaces.
+   */
+  namespaces?: Record<string, NormalizedStorageItem[]>
 }

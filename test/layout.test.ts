@@ -191,3 +191,118 @@ describe('diffLayouts', () => {
     ])
   })
 })
+
+// forge inspect output for a contract with plain storage plus an ERC-7201
+// namespace `example.main`, whose base slot is the one given in EIP-7201.
+const NS_BASE = '10958655983261152271848436692291137275443024275653522991983264966744321209600'
+const NS_NEXT = '10958655983261152271848436692291137275443024275653522991983264966744321209601'
+const namespacedForgeLayout = (): RawLayout => ({
+  storage: [
+    {astId: 1, contract: 'src/Ns.sol:Ns', label: 'owner', offset: 0, slot: '0', type: 't_address'},
+    {
+      astId: 2,
+      contract: 'src/Ns.sol:Ns',
+      label: 'example.main.total',
+      offset: 0,
+      slot: NS_BASE,
+      type: 'erc7201(example.main)::t_uint256'
+    },
+    {
+      astId: 3,
+      contract: 'src/Ns.sol:Ns',
+      label: 'example.main.positions',
+      offset: 0,
+      slot: NS_NEXT,
+      type: 'erc7201(example.main)::t_mapping(t_address,t_struct(Info)12_storage)'
+    }
+  ],
+  types: {
+    t_address: {encoding: 'inplace', label: 'address', numberOfBytes: '20'},
+    'erc7201(example.main)::t_address': {
+      encoding: 'inplace',
+      label: 'address',
+      numberOfBytes: '20'
+    },
+    'erc7201(example.main)::t_uint256': {
+      encoding: 'inplace',
+      label: 'uint256',
+      numberOfBytes: '32'
+    },
+    'erc7201(example.main)::t_mapping(t_address,t_struct(Info)12_storage)': {
+      encoding: 'mapping',
+      key: 'erc7201(example.main)::t_address',
+      label: 'mapping(address => struct Ns.Info)',
+      numberOfBytes: '32',
+      value: 'erc7201(example.main)::t_struct(Info)12_storage'
+    },
+    'erc7201(example.main)::t_struct(Info)12_storage': {
+      encoding: 'inplace',
+      label: 'struct Ns.Info',
+      numberOfBytes: '32',
+      members: [
+        {
+          astId: 4,
+          contract: 'src/Ns.sol:Ns',
+          label: 'amount',
+          offset: 0,
+          slot: '0',
+          type: 'erc7201(example.main)::t_uint256'
+        }
+      ]
+    }
+  }
+})
+
+describe('ERC-7201 namespaces', () => {
+  it('moves namespaced items under their storage location with plain type identifiers', () => {
+    const normalized = normalizeLayout(namespacedForgeLayout())
+
+    expect(normalized.storage.map(item => item.label)).toEqual(['owner'])
+    expect(normalized.namespaces).toEqual({
+      'erc7201:example.main': [
+        {label: 'total', offset: 0, slot: NS_BASE, type: 't_uint256', contract: 'src/Ns.sol:Ns'},
+        {
+          label: 'positions',
+          offset: 0,
+          slot: NS_NEXT,
+          type: 't_mapping(t_address,t_struct(Info)storage)',
+          contract: 'src/Ns.sol:Ns'
+        }
+      ]
+    })
+    expect(Object.keys(normalized.types).sort()).toEqual([
+      't_address',
+      't_mapping(t_address,t_struct(Info)storage)',
+      't_struct(Info)storage',
+      't_uint256'
+    ])
+    expect(normalized.types['t_struct(Info)storage'].members).toEqual([
+      {label: 'amount', offset: 0, slot: '0', type: 't_uint256'}
+    ])
+    expect(JSON.stringify(normalized)).not.toContain('erc7201(')
+  })
+
+  it('is idempotent', () => {
+    const once = normalizeLayout(namespacedForgeLayout())
+    expect(deepEqual(normalizeLayout(once), once)).toBe(true)
+  })
+
+  it('omits namespaces when there are none', () => {
+    expect(normalizeLayout(parseLayout(vaultSnapshot))).not.toHaveProperty('namespaces')
+  })
+
+  it('rejects namespaced items referencing undefined types', () => {
+    const truncated = namespacedForgeLayout()
+    delete (truncated.types as Record<string, unknown>)['erc7201(example.main)::t_uint256']
+    expect(() => normalizeLayout(truncated)).toThrow(
+      'layout references types with no definition: t_uint256'
+    )
+  })
+
+  it('reports namespaced items in diffs with their storage location', () => {
+    const plain = namespacedForgeLayout()
+    plain.storage = plain.storage.slice(0, 1)
+    const lines = diffLayouts(normalizeLayout(plain), normalizeLayout(namespacedForgeLayout()))
+    expect(lines).toContain(`+ total: t_uint256 (erc7201:example.main slot ${NS_BASE} offset 0)`)
+  })
+})

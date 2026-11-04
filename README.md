@@ -164,10 +164,14 @@ The freshness check always runs. When a contract has no snapshot at the base
 
 ## Notes and limitations
 
-- The check runs on solc's `storageLayout` output, which covers plain
-  (inherited) storage. It does not model ERC-7201 namespaced storage, and
-  NatSpec annotations such as `@custom:oz-renamed-from` are not honored (use
-  `unsafe-allow-renames` for deliberate renames).
+- The check runs on `forge inspect`'s storage layout, which covers plain
+  (inherited) storage. From Foundry 1.9 it also covers ERC-7201 namespaces
+  (`@custom:storage-location erc7201:<id>`), which are checked per namespace
+  with the same append-only rules; a namespace absent from the base snapshot
+  is treated as new. Regenerate snapshots after upgrading to Foundry 1.9 so
+  they include the namespaces. NatSpec annotations such as
+  `@custom:oz-renamed-from` are not honored (use `unsafe-allow-renames` for
+  deliberate renames).
 - Enum member lists are not part of solc's layout output, so the comparison
   treats same-named enums as compatible: value reorders or removals that keep
   the enum's byte size are not caught. Growing an enum past a byte boundary is

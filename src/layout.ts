@@ -1,6 +1,42 @@
 import {stabilizeTypeIdentifier} from '@openzeppelin/upgrades-core'
 
-import {NormalizedLayout, NormalizedStorageItem, NormalizedType, RawLayout, RawType} from './types'
+import {
+  NormalizedLayout,
+  NormalizedStorageItem,
+  NormalizedType,
+  RawLayout,
+  RawStorageItem,
+  RawType
+} from './types'
+
+/**
+ * forge inspect (1.9 and later) appends the members of ERC-7201 namespaces to
+ * `storage`, labelled `<namespace id>.<member>` at their absolute slots, and
+ * scopes every type identifier they reference as `erc7201(<namespace id>)::`
+ * (foundry-rs/foundry#17869). The comparison engine cannot parse the scoped
+ * identifiers and compares namespaces separately, keyed by storage location.
+ */
+const NAMESPACED_TYPE = /^erc7201\((.+?)\)::(.+)$/
+
+function splitNamespace(typeId: string): {namespace?: string; type: string} {
+  const match = NAMESPACED_TYPE.exec(typeId)
+  return match === null ? {type: typeId} : {namespace: match[1], type: match[2]}
+}
+
+function stabilize(typeId: string): string {
+  return stabilizeTypeIdentifier(splitNamespace(typeId).type)
+}
+
+function normalizeItem(item: RawStorageItem, label = item.label): NormalizedStorageItem {
+  const normalized: NormalizedStorageItem = {
+    label,
+    offset: item.offset,
+    slot: item.slot,
+    type: stabilize(item.type)
+  }
+  if (item.contract !== undefined) normalized.contract = item.contract
+  return normalized
+}
 
 /**
  * Reduces a layout to its semantically relevant fields and stabilizes all
@@ -12,20 +48,25 @@ export function normalizeLayout(raw: RawLayout): NormalizedLayout {
     throw new Error('invalid layout: missing `storage` array')
   }
 
-  const storage: NormalizedStorageItem[] = raw.storage.map(item => {
-    const normalized: NormalizedStorageItem = {
-      label: item.label,
-      offset: item.offset,
-      slot: item.slot,
-      type: stabilizeTypeIdentifier(item.type)
+  const storage: NormalizedStorageItem[] = []
+  const namespaces: Record<string, NormalizedStorageItem[]> = {}
+  for (const item of raw.storage) {
+    const {namespace} = splitNamespace(item.type)
+    if (namespace === undefined) {
+      storage.push(normalizeItem(item))
+      continue
     }
-    if (item.contract !== undefined) normalized.contract = item.contract
-    return normalized
-  })
+    const prefix = `${namespace}.`
+    const label = item.label.startsWith(prefix) ? item.label.slice(prefix.length) : item.label
+    ;(namespaces[`erc7201:${namespace}`] ??= []).push(normalizeItem(item, label))
+  }
+  for (const [location, items] of Object.entries(raw.namespaces ?? {})) {
+    ;(namespaces[location] ??= []).push(...items.map(item => normalizeItem(item)))
+  }
 
   const types: Record<string, NormalizedType> = {}
   for (const [id, type] of Object.entries(raw.types ?? {})) {
-    const key = stabilizeTypeIdentifier(id)
+    const key = stabilize(id)
     const normalized = normalizeType(type)
     // Stabilization drops the AST id, so distinct scoped types can share a
     // key (struct PoolA.Info and struct PoolB.Info both become
@@ -43,9 +84,20 @@ export function normalizeLayout(raw: RawLayout): NormalizedLayout {
     types[key] = normalized
   }
 
-  const layout = {storage, types}
+  const layout: NormalizedLayout = {storage, types}
+  if (Object.keys(namespaces).length > 0) layout.namespaces = namespaces
   assertTypeReferencesResolve(layout)
   return layout
+}
+
+/** Plain storage followed by namespaced items, each with its namespace. */
+function allItems(layout: NormalizedLayout): {item: NormalizedStorageItem; namespace?: string}[] {
+  return [
+    ...layout.storage.map(item => ({item})),
+    ...Object.entries(layout.namespaces ?? {}).flatMap(([namespace, items]) =>
+      items.map(item => ({item, namespace}))
+    )
+  ]
 }
 
 /**
@@ -59,7 +111,7 @@ function assertTypeReferencesResolve(layout: NormalizedLayout): void {
   const needs = (id: string): void => {
     if (layout.types[id] === undefined) missing.add(id)
   }
-  for (const item of layout.storage) needs(item.type)
+  for (const {item} of allItems(layout)) needs(item.type)
   for (const type of Object.values(layout.types)) {
     type.members?.forEach(member => needs(member.type))
     if (type.base !== undefined) needs(type.base)
@@ -83,12 +135,12 @@ function normalizeType(type: RawType): NormalizedType {
       label: member.label,
       offset: member.offset,
       slot: member.slot,
-      type: stabilizeTypeIdentifier(member.type)
+      type: stabilize(member.type)
     }))
   }
-  if (type.base !== undefined) normalized.base = stabilizeTypeIdentifier(type.base)
-  if (type.key !== undefined) normalized.key = stabilizeTypeIdentifier(type.key)
-  if (type.value !== undefined) normalized.value = stabilizeTypeIdentifier(type.value)
+  if (type.base !== undefined) normalized.base = stabilize(type.base)
+  if (type.key !== undefined) normalized.key = stabilize(type.key)
+  if (type.value !== undefined) normalized.value = stabilize(type.value)
   return normalized
 }
 
@@ -132,28 +184,32 @@ export function deepEqual(a: unknown, b: unknown): boolean {
  */
 export function diffLayouts(before: NormalizedLayout, after: NormalizedLayout): string[] {
   const lines: string[] = []
-  const location = (item: NormalizedStorageItem): string =>
-    `slot ${item.slot} offset ${item.offset}`
-  const key = (item: NormalizedStorageItem): string => `${item.slot}:${item.offset}`
+  type Entry = {item: NormalizedStorageItem; location: string}
+  const byPosition = (layout: NormalizedLayout): Map<string, Entry> =>
+    new Map(
+      allItems(layout).map(({item, namespace}) => {
+        const position = `slot ${item.slot} offset ${item.offset}`
+        const location = namespace === undefined ? position : `${namespace} ${position}`
+        return [location, {item, location}]
+      })
+    )
 
-  const beforeByKey = new Map(before.storage.map(item => [key(item), item]))
-  const afterByKey = new Map(after.storage.map(item => [key(item), item]))
+  const beforeByKey = byPosition(before)
+  const afterByKey = byPosition(after)
 
-  for (const [k, item] of beforeByKey) {
-    const other = afterByKey.get(k)
+  for (const [k, {item, location}] of beforeByKey) {
+    const other = afterByKey.get(k)?.item
     if (other === undefined) {
-      lines.push(`- ${item.label}: ${item.type} (${location(item)})`)
+      lines.push(`- ${item.label}: ${item.type} (${location})`)
     } else if (item.label !== other.label || item.type !== other.type) {
-      lines.push(
-        `~ ${location(item)}: ${item.label} (${item.type}) -> ${other.label} (${other.type})`
-      )
+      lines.push(`~ ${location}: ${item.label} (${item.type}) -> ${other.label} (${other.type})`)
     } else if (item.contract !== other.contract) {
       lines.push(`~ ${item.label}: contract changed ${item.contract} -> ${other.contract}`)
     }
   }
-  for (const [k, item] of afterByKey) {
+  for (const [k, {item, location}] of afterByKey) {
     if (!beforeByKey.has(k)) {
-      lines.push(`+ ${item.label}: ${item.type} (${location(item)})`)
+      lines.push(`+ ${item.label}: ${item.type} (${location})`)
     }
   }
 

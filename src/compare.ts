@@ -1,6 +1,6 @@
 import {getStorageUpgradeReport, withValidationDefaults} from '@openzeppelin/upgrades-core'
 
-import {NormalizedLayout} from './types'
+import {NormalizedLayout, NormalizedStorageItem} from './types'
 
 export interface CompatibilityResult {
   pass: boolean
@@ -15,12 +15,20 @@ type UpgradesLayout = Parameters<typeof getStorageUpgradeReport>[0]
  * contract for readable messages.
  */
 function toUpgradesLayout(layout: NormalizedLayout): UpgradesLayout {
-  return {
-    storage: layout.storage.map(item =>
-      item.contract === undefined ? item : {...item, src: item.contract}
-    ),
+  const withSrc = (items: NormalizedStorageItem[]): unknown[] =>
+    items.map(item => (item.contract === undefined ? item : {...item, src: item.contract}))
+  const upgradesLayout: Record<string, unknown> = {
+    storage: withSrc(layout.storage),
     types: layout.types
-  } as unknown as UpgradesLayout
+  }
+  // A namespace missing from the original is new and needs no check; one
+  // missing from the update is reported as deleted.
+  if (layout.namespaces !== undefined) {
+    upgradesLayout.namespaces = Object.fromEntries(
+      Object.entries(layout.namespaces).map(([location, items]) => [location, withSrc(items)])
+    )
+  }
+  return upgradesLayout as unknown as UpgradesLayout
 }
 
 /**
