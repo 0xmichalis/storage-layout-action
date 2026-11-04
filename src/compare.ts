@@ -1,6 +1,6 @@
 import {getStorageUpgradeReport, withValidationDefaults} from '@openzeppelin/upgrades-core'
 
-import {NormalizedLayout} from './types'
+import {NormalizedLayout, NormalizedSection} from './types'
 
 export interface CompatibilityResult {
   pass: boolean
@@ -14,12 +14,12 @@ type UpgradesLayout = Parameters<typeof getStorageUpgradeReport>[0]
  * from AST data). Solc layouts have no `src`, so reuse the declaring
  * contract for readable messages.
  */
-function toUpgradesLayout(layout: NormalizedLayout): UpgradesLayout {
+function toUpgradesLayout(section: NormalizedSection): UpgradesLayout {
   return {
-    storage: layout.storage.map(item =>
+    storage: section.storage.map(item =>
       item.contract === undefined ? item : {...item, src: item.contract}
     ),
-    types: layout.types
+    types: section.types
   } as unknown as UpgradesLayout
 }
 
@@ -31,6 +31,28 @@ function toUpgradesLayout(layout: NormalizedLayout): UpgradesLayout {
 export function checkCompatibility(
   oldLayout: NormalizedLayout,
   newLayout: NormalizedLayout,
+  unsafeAllowRenames: boolean
+): CompatibilityResult {
+  const failures: string[] = []
+  const plain = compareSection(oldLayout, newLayout, unsafeAllowRenames)
+  if (!plain.pass) failures.push(plain.explanation)
+  // Each ERC-7201 namespace is compared on its own types. A namespace missing
+  // from the base is new; one missing from the update is deleted.
+  for (const [location, before] of Object.entries(oldLayout.namespaces ?? {})) {
+    const after = newLayout.namespaces?.[location]
+    if (after === undefined) {
+      if (before.storage.length > 0) failures.push(`Deleted namespace \`${location}\``)
+      continue
+    }
+    const result = compareSection(before, after, unsafeAllowRenames)
+    if (!result.pass) failures.push(`${location}:\n${result.explanation}`)
+  }
+  return {pass: failures.length === 0, explanation: failures.join('\n')}
+}
+
+function compareSection(
+  oldLayout: NormalizedSection,
+  newLayout: NormalizedSection,
   unsafeAllowRenames: boolean
 ): CompatibilityResult {
   try {

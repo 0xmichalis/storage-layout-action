@@ -39711,15 +39711,31 @@ var path3 = __toESM(require("path"));
 
 // src/compare.ts
 var import_upgrades_core = __toESM(require_dist3());
-function toUpgradesLayout(layout) {
+function toUpgradesLayout(section) {
   return {
-    storage: layout.storage.map(
+    storage: section.storage.map(
       (item) => item.contract === void 0 ? item : { ...item, src: item.contract }
     ),
-    types: layout.types
+    types: section.types
   };
 }
 function checkCompatibility(oldLayout, newLayout, unsafeAllowRenames) {
+  const failures = [];
+  const plain = compareSection(oldLayout, newLayout, unsafeAllowRenames);
+  if (!plain.pass) failures.push(plain.explanation);
+  for (const [location, before] of Object.entries(oldLayout.namespaces ?? {})) {
+    const after = newLayout.namespaces?.[location];
+    if (after === void 0) {
+      if (before.storage.length > 0) failures.push(`Deleted namespace \`${location}\``);
+      continue;
+    }
+    const result = compareSection(before, after, unsafeAllowRenames);
+    if (!result.pass) failures.push(`${location}:
+${result.explanation}`);
+  }
+  return { pass: failures.length === 0, explanation: failures.join("\n") };
+}
+function compareSection(oldLayout, newLayout, unsafeAllowRenames) {
   try {
     const report = (0, import_upgrades_core.getStorageUpgradeReport)(
       toUpgradesLayout(oldLayout),
@@ -40064,43 +40080,82 @@ function findRequiredContracts(projectRoot, config, rules) {
 
 // src/layout.ts
 var import_upgrades_core2 = __toESM(require_dist3());
+var NAMESPACED_TYPE = /^erc7201\((.+?)\)::(.+)$/;
+function splitNamespace(typeId) {
+  const match = NAMESPACED_TYPE.exec(typeId);
+  return match === null ? { type: typeId } : { namespace: match[1], type: match[2] };
+}
+function stabilize(typeId) {
+  return (0, import_upgrades_core2.stabilizeTypeIdentifier)(splitNamespace(typeId).type);
+}
 function normalizeLayout(raw) {
   if (!Array.isArray(raw.storage)) {
     throw new Error("invalid layout: missing `storage` array");
   }
+  const plain = { storage: [], types: {} };
+  const scoped = Object.fromEntries(
+    Object.entries(raw.namespaces ?? {}).map(([location, section]) => [
+      location,
+      { storage: [...section.storage], types: { ...section.types } }
+    ])
+  );
+  const sectionOf = (namespace) => namespace === void 0 ? plain : scoped[`erc7201:${namespace}`] ??= { storage: [], types: {} };
+  for (const item of raw.storage) {
+    const { namespace } = splitNamespace(item.type);
+    const prefix = `${namespace}.`;
+    const label = namespace !== void 0 && item.label.startsWith(prefix) ? item.label.slice(prefix.length) : item.label;
+    sectionOf(namespace).storage.push({ ...item, label });
+  }
+  for (const [id, type] of Object.entries(raw.types ?? {})) {
+    sectionOf(splitNamespace(id).namespace).types[id] = type;
+  }
+  const layout = normalizeSection(plain);
+  const locations = Object.keys(scoped);
+  if (locations.length > 0) {
+    layout.namespaces = Object.fromEntries(
+      locations.map((location) => [location, normalizeSection(scoped[location], location)])
+    );
+  }
+  return layout;
+}
+function normalizeSection(raw, location) {
+  const where = location === void 0 ? "" : ` in ${location}`;
   const storage = raw.storage.map((item) => {
     const normalized = {
       label: item.label,
       offset: item.offset,
       slot: item.slot,
-      type: (0, import_upgrades_core2.stabilizeTypeIdentifier)(item.type)
+      type: stabilize(item.type)
     };
     if (item.contract !== void 0) normalized.contract = item.contract;
     return normalized;
   });
   const types = {};
   for (const [id, type] of Object.entries(raw.types ?? {})) {
-    const key = (0, import_upgrades_core2.stabilizeTypeIdentifier)(id);
+    const key = stabilize(id);
     const normalized = normalizeType(type);
     const previous = types[key];
-    if (previous !== void 0 && !deepEqual({ ...previous, label: void 0 }, { ...normalized, label: void 0 })) {
-      throw new Error(
-        `distinct types share the identifier ${key} (${previous.label} vs ${normalized.label}); the storage layout cannot be compared safely`
-      );
+    if (previous !== void 0) {
+      if (!deepEqual({ ...previous, label: void 0 }, { ...normalized, label: void 0 })) {
+        throw new Error(
+          `distinct types share the identifier ${key}${where} (${previous.label} vs ${normalized.label}); the storage layout cannot be compared safely`
+        );
+      }
+      if ((previous.label ?? "") <= (normalized.label ?? "")) continue;
     }
     types[key] = normalized;
   }
-  const layout = { storage, types };
-  assertTypeReferencesResolve(layout);
-  return layout;
+  const section = { storage, types };
+  assertTypeReferencesResolve(section, where);
+  return section;
 }
-function assertTypeReferencesResolve(layout) {
+function assertTypeReferencesResolve(section, where) {
   const missing = /* @__PURE__ */ new Set();
   const needs = (id) => {
-    if (layout.types[id] === void 0) missing.add(id);
+    if (section.types[id] === void 0) missing.add(id);
   };
-  for (const item of layout.storage) needs(item.type);
-  for (const type of Object.values(layout.types)) {
+  for (const item of section.storage) needs(item.type);
+  for (const type of Object.values(section.types)) {
     type.members?.forEach((member) => needs(member.type));
     if (type.base !== void 0) needs(type.base);
     if (type.key !== void 0) needs(type.key);
@@ -40108,7 +40163,7 @@ function assertTypeReferencesResolve(layout) {
   }
   if (missing.size > 0) {
     throw new Error(
-      `layout references types with no definition: ${[...missing].sort().join(", ")}; regenerate the snapshot with forge inspect`
+      `layout references types with no definition${where}: ${[...missing].sort().join(", ")}; regenerate the snapshot with forge inspect`
     );
   }
 }
@@ -40122,12 +40177,12 @@ function normalizeType(type) {
       label: member.label,
       offset: member.offset,
       slot: member.slot,
-      type: (0, import_upgrades_core2.stabilizeTypeIdentifier)(member.type)
+      type: stabilize(member.type)
     }));
   }
-  if (type.base !== void 0) normalized.base = (0, import_upgrades_core2.stabilizeTypeIdentifier)(type.base);
-  if (type.key !== void 0) normalized.key = (0, import_upgrades_core2.stabilizeTypeIdentifier)(type.key);
-  if (type.value !== void 0) normalized.value = (0, import_upgrades_core2.stabilizeTypeIdentifier)(type.value);
+  if (type.base !== void 0) normalized.base = stabilize(type.base);
+  if (type.key !== void 0) normalized.key = stabilize(type.key);
+  if (type.value !== void 0) normalized.value = stabilize(type.value);
   return normalized;
 }
 function parseLayout(json) {
@@ -40158,8 +40213,26 @@ function deepEqual(a, b) {
   return false;
 }
 function diffLayouts(before, after) {
+  const lines = diffSection(before, after, "");
+  const empty = { storage: [], types: {} };
+  const locations = /* @__PURE__ */ new Set([
+    ...Object.keys(before.namespaces ?? {}),
+    ...Object.keys(after.namespaces ?? {})
+  ]);
+  for (const location of locations) {
+    lines.push(
+      ...diffSection(
+        before.namespaces?.[location] ?? empty,
+        after.namespaces?.[location] ?? empty,
+        `${location} `
+      )
+    );
+  }
+  return lines;
+}
+function diffSection(before, after, where) {
   const lines = [];
-  const location = (item) => `slot ${item.slot} offset ${item.offset}`;
+  const location = (item) => `${where}slot ${item.slot} offset ${item.offset}`;
   const key = (item) => `${item.slot}:${item.offset}`;
   const beforeByKey = new Map(before.storage.map((item) => [key(item), item]));
   const afterByKey = new Map(after.storage.map((item) => [key(item), item]));
@@ -40185,11 +40258,11 @@ function diffLayouts(before, after) {
     const beforeType = before.types[id];
     const afterType = after.types[id];
     if (beforeType === void 0) {
-      lines.push(`+ type ${id}`);
+      lines.push(`+ type ${where}${id}`);
     } else if (afterType === void 0) {
-      lines.push(`- type ${id}`);
+      lines.push(`- type ${where}${id}`);
     } else if (!deepEqual(beforeType, afterType)) {
-      lines.push(`~ type ${id}: definition changed`);
+      lines.push(`~ type ${where}${id}: definition changed`);
     }
   }
   return lines;

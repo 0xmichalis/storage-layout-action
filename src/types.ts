@@ -30,9 +30,14 @@ export interface RawType {
   value?: string
 }
 
-export interface RawLayout {
+export interface RawSection {
   storage: RawStorageItem[]
   types?: Record<string, RawType> | null
+}
+
+export interface RawLayout extends RawSection {
+  /** Only in normalized snapshots; forge reports namespaced items in `storage`. */
+  namespaces?: Record<string, RawSection>
 }
 
 /**
@@ -65,7 +70,16 @@ export interface NormalizedType {
   value?: string
 }
 
-export interface NormalizedLayout {
+export interface NormalizedSection {
   storage: NormalizedStorageItem[]
   types: Record<string, NormalizedType>
+}
+
+export interface NormalizedLayout extends NormalizedSection {
+  /**
+   * ERC-7201 namespaces keyed by storage location (`erc7201:<namespace id>`),
+   * each with its own types, as forge scopes them. Omitted when the contract
+   * has no namespaces.
+   */
+  namespaces?: Record<string, NormalizedSection>
 }

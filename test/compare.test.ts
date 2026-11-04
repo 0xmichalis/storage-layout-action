@@ -194,3 +194,95 @@ describe('checkCompatibility', () => {
     expect(checkCompatibility(base, withGrownGap, false).pass).toBe(false)
   })
 })
+
+describe('checkCompatibility with ERC-7201 namespaces', () => {
+  const LOCATION = 'erc7201:example.main'
+  const NS_BASE = 10958655983261152271848436692291137275443024275653522991983264966744321209600n
+  const at = (label: string, slot: bigint, type = 't_uint256') => ({
+    label,
+    offset: 0,
+    slot: slot.toString(),
+    type,
+    contract: CONTRACT
+  })
+  const withNamespace = (items: NormalizedLayout['storage']): NormalizedLayout => ({
+    ...base,
+    namespaces: {[LOCATION]: {storage: items, types: TYPES}}
+  })
+  const namespaced = withNamespace([at('total', NS_BASE), at('owner', NS_BASE + 1n, 't_address')])
+
+  it('accepts an identical namespaced layout', () => {
+    expect(checkCompatibility(namespaced, namespaced, false).pass).toBe(true)
+  })
+
+  it('accepts a namespace the base did not report', () => {
+    expect(checkCompatibility(base, namespaced, false).pass).toBe(true)
+  })
+
+  it('accepts members appended to a namespace', () => {
+    const upgraded = withNamespace([
+      ...namespaced.namespaces![LOCATION].storage,
+      at('fee', NS_BASE + 2n)
+    ])
+    expect(checkCompatibility(namespaced, upgraded, false).pass).toBe(true)
+  })
+
+  it('rejects members inserted into a namespace', () => {
+    const upgraded = withNamespace([
+      at('sneaky', NS_BASE),
+      at('total', NS_BASE + 1n),
+      at('owner', NS_BASE + 2n, 't_address')
+    ])
+    const result = checkCompatibility(namespaced, upgraded, false)
+    expect(result.pass).toBe(false)
+    expect(result.explanation).toContain('Inserted `sneaky`')
+  })
+
+  it('rejects namespace member type changes', () => {
+    const upgraded = withNamespace([
+      at('total', NS_BASE, 't_address'),
+      at('owner', NS_BASE + 1n, 't_address')
+    ])
+    expect(checkCompatibility(namespaced, upgraded, false).pass).toBe(false)
+  })
+
+  it('rejects a deleted namespace', () => {
+    const result = checkCompatibility(namespaced, base, false)
+    expect(result.pass).toBe(false)
+    expect(result.explanation).toContain(LOCATION)
+  })
+
+  it('checks struct members against the types of their namespace', () => {
+    const struct = (members: [string, string][]): NormalizedLayout['types'] => ({
+      ...TYPES,
+      't_struct(Info)storage': {
+        encoding: 'inplace',
+        label: 'struct Info',
+        numberOfBytes: String(32 * members.length),
+        members: members.map(([label, type], i) => ({label, offset: 0, slot: String(i), type}))
+      }
+    })
+    const layout = (members: [string, string][]): NormalizedLayout => ({
+      ...base,
+      types: struct([['unrelated', 't_address']]),
+      namespaces: {
+        [LOCATION]: {
+          storage: [at('info', NS_BASE, 't_struct(Info)storage')],
+          types: struct(members)
+        }
+      }
+    })
+    const before = layout([['total', 't_uint256']])
+    expect(checkCompatibility(before, before, false).pass).toBe(true)
+    expect(
+      checkCompatibility(
+        before,
+        layout([
+          ['sneaky', 't_uint256'],
+          ['total', 't_uint256']
+        ]),
+        false
+      ).pass
+    ).toBe(false)
+  })
+})

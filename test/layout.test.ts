@@ -191,3 +191,181 @@ describe('diffLayouts', () => {
     ])
   })
 })
+
+// forge inspect output for a contract with plain storage plus an ERC-7201
+// namespace `example.main`, whose base slot is the one given in EIP-7201.
+const NS_BASE = '10958655983261152271848436692291137275443024275653522991983264966744321209600'
+const NS_NEXT = '10958655983261152271848436692291137275443024275653522991983264966744321209601'
+const namespacedForgeLayout = (): RawLayout => ({
+  storage: [
+    {astId: 1, contract: 'src/Ns.sol:Ns', label: 'owner', offset: 0, slot: '0', type: 't_address'},
+    {
+      astId: 2,
+      contract: 'src/Ns.sol:Ns',
+      label: 'example.main.total',
+      offset: 0,
+      slot: NS_BASE,
+      type: 'erc7201(example.main)::t_uint256'
+    },
+    {
+      astId: 3,
+      contract: 'src/Ns.sol:Ns',
+      label: 'example.main.positions',
+      offset: 0,
+      slot: NS_NEXT,
+      type: 'erc7201(example.main)::t_mapping(t_address,t_struct(Info)12_storage)'
+    }
+  ],
+  types: {
+    t_address: {encoding: 'inplace', label: 'address', numberOfBytes: '20'},
+    'erc7201(example.main)::t_address': {
+      encoding: 'inplace',
+      label: 'address',
+      numberOfBytes: '20'
+    },
+    'erc7201(example.main)::t_uint256': {
+      encoding: 'inplace',
+      label: 'uint256',
+      numberOfBytes: '32'
+    },
+    'erc7201(example.main)::t_mapping(t_address,t_struct(Info)12_storage)': {
+      encoding: 'mapping',
+      key: 'erc7201(example.main)::t_address',
+      label: 'mapping(address => struct Ns.Info)',
+      numberOfBytes: '32',
+      value: 'erc7201(example.main)::t_struct(Info)12_storage'
+    },
+    'erc7201(example.main)::t_struct(Info)12_storage': {
+      encoding: 'inplace',
+      label: 'struct Ns.Info',
+      numberOfBytes: '32',
+      members: [
+        {
+          astId: 4,
+          contract: 'src/Ns.sol:Ns',
+          label: 'amount',
+          offset: 0,
+          slot: '0',
+          type: 'erc7201(example.main)::t_uint256'
+        }
+      ]
+    }
+  }
+})
+
+describe('ERC-7201 namespaces', () => {
+  it('moves each namespace into its own section with plain type identifiers', () => {
+    const normalized = normalizeLayout(namespacedForgeLayout())
+
+    expect(normalized.storage.map(item => item.label)).toEqual(['owner'])
+    expect(Object.keys(normalized.types)).toEqual(['t_address'])
+    const section = normalized.namespaces?.['erc7201:example.main']
+    expect(section?.storage).toEqual([
+      {label: 'total', offset: 0, slot: NS_BASE, type: 't_uint256', contract: 'src/Ns.sol:Ns'},
+      {
+        label: 'positions',
+        offset: 0,
+        slot: NS_NEXT,
+        type: 't_mapping(t_address,t_struct(Info)storage)',
+        contract: 'src/Ns.sol:Ns'
+      }
+    ])
+    expect(Object.keys(section?.types ?? {}).sort()).toEqual([
+      't_address',
+      't_mapping(t_address,t_struct(Info)storage)',
+      't_struct(Info)storage',
+      't_uint256'
+    ])
+    expect(section?.types['t_struct(Info)storage'].members).toEqual([
+      {label: 'amount', offset: 0, slot: '0', type: 't_uint256'}
+    ])
+    expect(JSON.stringify(normalized)).not.toContain('erc7201(')
+  })
+
+  it('keeps same-named structs of different namespaces apart', () => {
+    const raw = namespacedForgeLayout()
+    raw.storage.push({
+      astId: 5,
+      contract: 'src/Ns.sol:Ns',
+      label: 'example.other.info',
+      offset: 0,
+      slot: '7',
+      type: 'erc7201(example.other)::t_struct(Info)20_storage'
+    })
+    raw.types!['erc7201(example.other)::t_struct(Info)20_storage'] = {
+      encoding: 'inplace',
+      label: 'struct Other.Info',
+      numberOfBytes: '32',
+      members: [{label: 'owner', offset: 0, slot: '0', type: 'erc7201(example.other)::t_address'}]
+    }
+    raw.types!['erc7201(example.other)::t_address'] = {
+      encoding: 'inplace',
+      label: 'address',
+      numberOfBytes: '20'
+    }
+
+    const normalized = normalizeLayout(raw)
+    expect(
+      normalized.namespaces?.['erc7201:example.main'].types['t_struct(Info)storage'].label
+    ).toBe('struct Ns.Info')
+    expect(
+      normalized.namespaces?.['erc7201:example.other'].types['t_struct(Info)storage'].label
+    ).toBe('struct Other.Info')
+  })
+
+  it('is idempotent', () => {
+    const once = normalizeLayout(namespacedForgeLayout())
+    expect(deepEqual(normalizeLayout(once), once)).toBe(true)
+  })
+
+  it('omits namespaces when there are none', () => {
+    expect(normalizeLayout(parseLayout(vaultSnapshot))).not.toHaveProperty('namespaces')
+  })
+
+  it('rejects namespaced items referencing undefined types', () => {
+    const truncated = namespacedForgeLayout()
+    delete (truncated.types as Record<string, unknown>)['erc7201(example.main)::t_uint256']
+    expect(() => normalizeLayout(truncated)).toThrow(
+      'layout references types with no definition in erc7201:example.main: t_uint256'
+    )
+  })
+
+  it('reports namespaced items in diffs with their storage location', () => {
+    const plain = namespacedForgeLayout()
+    plain.storage = plain.storage.slice(0, 1)
+    const lines = diffLayouts(normalizeLayout(plain), normalizeLayout(namespacedForgeLayout()))
+    expect(lines).toContain(`+ total: t_uint256 (erc7201:example.main slot ${NS_BASE} offset 0)`)
+  })
+})
+
+describe('normalizeLayout type labels', () => {
+  it('keeps the same label for identical same-named types in any order', () => {
+    const info = (label: string) => ({
+      encoding: 'inplace',
+      label,
+      numberOfBytes: '32',
+      members: [{label: 'total', offset: 0, slot: '0', type: 't_uint256'}]
+    })
+    const layout = (ids: [string, string][]): RawLayout => ({
+      storage: [{label: 'info', offset: 0, slot: '0', type: 't_struct(Info)6_storage'}],
+      types: {
+        ...Object.fromEntries(ids.map(([id, label]) => [id, info(label)])),
+        t_uint256: {encoding: 'inplace', label: 'uint256', numberOfBytes: '32'}
+      }
+    })
+    const a = normalizeLayout(
+      layout([
+        ['t_struct(Info)6_storage', 'struct PoolB.Info'],
+        ['t_struct(Info)12_storage', 'struct PoolA.Info']
+      ])
+    )
+    const b = normalizeLayout(
+      layout([
+        ['t_struct(Info)12_storage', 'struct PoolA.Info'],
+        ['t_struct(Info)6_storage', 'struct PoolB.Info']
+      ])
+    )
+    expect(a.types['t_struct(Info)storage'].label).toBe('struct PoolA.Info')
+    expect(deepEqual(a, b)).toBe(true)
+  })
+})
