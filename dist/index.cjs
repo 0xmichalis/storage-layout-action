@@ -39711,20 +39711,31 @@ var path3 = __toESM(require("path"));
 
 // src/compare.ts
 var import_upgrades_core = __toESM(require_dist3());
-function toUpgradesLayout(layout) {
-  const withSrc = (items) => items.map((item) => item.contract === void 0 ? item : { ...item, src: item.contract });
-  const upgradesLayout = {
-    storage: withSrc(layout.storage),
-    types: layout.types
+function toUpgradesLayout(section) {
+  return {
+    storage: section.storage.map(
+      (item) => item.contract === void 0 ? item : { ...item, src: item.contract }
+    ),
+    types: section.types
   };
-  if (layout.namespaces !== void 0) {
-    upgradesLayout.namespaces = Object.fromEntries(
-      Object.entries(layout.namespaces).map(([location, items]) => [location, withSrc(items)])
-    );
-  }
-  return upgradesLayout;
 }
 function checkCompatibility(oldLayout, newLayout, unsafeAllowRenames) {
+  const failures = [];
+  const plain = compareSection(oldLayout, newLayout, unsafeAllowRenames);
+  if (!plain.pass) failures.push(plain.explanation);
+  for (const [location, before] of Object.entries(oldLayout.namespaces ?? {})) {
+    const after = newLayout.namespaces?.[location];
+    if (after === void 0) {
+      if (before.storage.length > 0) failures.push(`Deleted namespace \`${location}\``);
+      continue;
+    }
+    const result = compareSection(before, after, unsafeAllowRenames);
+    if (!result.pass) failures.push(`${location}:
+${result.explanation}`);
+  }
+  return { pass: failures.length === 0, explanation: failures.join("\n") };
+}
+function compareSection(oldLayout, newLayout, unsafeAllowRenames) {
   try {
     const report = (0, import_upgrades_core.getStorageUpgradeReport)(
       toUpgradesLayout(oldLayout),
@@ -40077,68 +40088,74 @@ function splitNamespace(typeId) {
 function stabilize(typeId) {
   return (0, import_upgrades_core2.stabilizeTypeIdentifier)(splitNamespace(typeId).type);
 }
-function normalizeItem(item, label = item.label) {
-  const normalized = {
-    label,
-    offset: item.offset,
-    slot: item.slot,
-    type: stabilize(item.type)
-  };
-  if (item.contract !== void 0) normalized.contract = item.contract;
-  return normalized;
-}
 function normalizeLayout(raw) {
   if (!Array.isArray(raw.storage)) {
     throw new Error("invalid layout: missing `storage` array");
   }
-  const storage = [];
-  const namespaces = {};
+  const plain = { storage: [], types: {} };
+  const scoped = Object.fromEntries(
+    Object.entries(raw.namespaces ?? {}).map(([location, section]) => [
+      location,
+      { storage: [...section.storage], types: { ...section.types } }
+    ])
+  );
+  const sectionOf = (namespace) => namespace === void 0 ? plain : scoped[`erc7201:${namespace}`] ??= { storage: [], types: {} };
   for (const item of raw.storage) {
     const { namespace } = splitNamespace(item.type);
-    if (namespace === void 0) {
-      storage.push(normalizeItem(item));
-      continue;
-    }
     const prefix = `${namespace}.`;
-    const label = item.label.startsWith(prefix) ? item.label.slice(prefix.length) : item.label;
-    (namespaces[`erc7201:${namespace}`] ??= []).push(normalizeItem(item, label));
+    const label = namespace !== void 0 && item.label.startsWith(prefix) ? item.label.slice(prefix.length) : item.label;
+    sectionOf(namespace).storage.push({ ...item, label });
   }
-  for (const [location, items] of Object.entries(raw.namespaces ?? {})) {
-    ;
-    (namespaces[location] ??= []).push(...items.map((item) => normalizeItem(item)));
+  for (const [id, type] of Object.entries(raw.types ?? {})) {
+    sectionOf(splitNamespace(id).namespace).types[id] = type;
   }
+  const layout = normalizeSection(plain);
+  const locations = Object.keys(scoped);
+  if (locations.length > 0) {
+    layout.namespaces = Object.fromEntries(
+      locations.map((location) => [location, normalizeSection(scoped[location], location)])
+    );
+  }
+  return layout;
+}
+function normalizeSection(raw, location) {
+  const where = location === void 0 ? "" : ` in ${location}`;
+  const storage = raw.storage.map((item) => {
+    const normalized = {
+      label: item.label,
+      offset: item.offset,
+      slot: item.slot,
+      type: stabilize(item.type)
+    };
+    if (item.contract !== void 0) normalized.contract = item.contract;
+    return normalized;
+  });
   const types = {};
   for (const [id, type] of Object.entries(raw.types ?? {})) {
     const key = stabilize(id);
     const normalized = normalizeType(type);
     const previous = types[key];
-    if (previous !== void 0 && !deepEqual({ ...previous, label: void 0 }, { ...normalized, label: void 0 })) {
-      throw new Error(
-        `distinct types share the identifier ${key} (${previous.label} vs ${normalized.label}); the storage layout cannot be compared safely`
-      );
+    if (previous !== void 0) {
+      if (!deepEqual({ ...previous, label: void 0 }, { ...normalized, label: void 0 })) {
+        throw new Error(
+          `distinct types share the identifier ${key}${where} (${previous.label} vs ${normalized.label}); the storage layout cannot be compared safely`
+        );
+      }
+      if ((previous.label ?? "") <= (normalized.label ?? "")) continue;
     }
     types[key] = normalized;
   }
-  const layout = { storage, types };
-  if (Object.keys(namespaces).length > 0) layout.namespaces = namespaces;
-  assertTypeReferencesResolve(layout);
-  return layout;
+  const section = { storage, types };
+  assertTypeReferencesResolve(section, where);
+  return section;
 }
-function allItems(layout) {
-  return [
-    ...layout.storage.map((item) => ({ item })),
-    ...Object.entries(layout.namespaces ?? {}).flatMap(
-      ([namespace, items]) => items.map((item) => ({ item, namespace }))
-    )
-  ];
-}
-function assertTypeReferencesResolve(layout) {
+function assertTypeReferencesResolve(section, where) {
   const missing = /* @__PURE__ */ new Set();
   const needs = (id) => {
-    if (layout.types[id] === void 0) missing.add(id);
+    if (section.types[id] === void 0) missing.add(id);
   };
-  for (const { item } of allItems(layout)) needs(item.type);
-  for (const type of Object.values(layout.types)) {
+  for (const item of section.storage) needs(item.type);
+  for (const type of Object.values(section.types)) {
     type.members?.forEach((member) => needs(member.type));
     if (type.base !== void 0) needs(type.base);
     if (type.key !== void 0) needs(type.key);
@@ -40146,7 +40163,7 @@ function assertTypeReferencesResolve(layout) {
   }
   if (missing.size > 0) {
     throw new Error(
-      `layout references types with no definition: ${[...missing].sort().join(", ")}; regenerate the snapshot with forge inspect`
+      `layout references types with no definition${where}: ${[...missing].sort().join(", ")}; regenerate the snapshot with forge inspect`
     );
   }
 }
@@ -40196,29 +40213,44 @@ function deepEqual(a, b) {
   return false;
 }
 function diffLayouts(before, after) {
+  const lines = diffSection(before, after, "");
+  const empty = { storage: [], types: {} };
+  const locations = /* @__PURE__ */ new Set([
+    ...Object.keys(before.namespaces ?? {}),
+    ...Object.keys(after.namespaces ?? {})
+  ]);
+  for (const location of locations) {
+    lines.push(
+      ...diffSection(
+        before.namespaces?.[location] ?? empty,
+        after.namespaces?.[location] ?? empty,
+        `${location} `
+      )
+    );
+  }
+  return lines;
+}
+function diffSection(before, after, where) {
   const lines = [];
-  const byPosition = (layout) => new Map(
-    allItems(layout).map(({ item, namespace }) => {
-      const position = `slot ${item.slot} offset ${item.offset}`;
-      const location = namespace === void 0 ? position : `${namespace} ${position}`;
-      return [location, { item, location }];
-    })
-  );
-  const beforeByKey = byPosition(before);
-  const afterByKey = byPosition(after);
-  for (const [k, { item, location }] of beforeByKey) {
-    const other = afterByKey.get(k)?.item;
+  const location = (item) => `${where}slot ${item.slot} offset ${item.offset}`;
+  const key = (item) => `${item.slot}:${item.offset}`;
+  const beforeByKey = new Map(before.storage.map((item) => [key(item), item]));
+  const afterByKey = new Map(after.storage.map((item) => [key(item), item]));
+  for (const [k, item] of beforeByKey) {
+    const other = afterByKey.get(k);
     if (other === void 0) {
-      lines.push(`- ${item.label}: ${item.type} (${location})`);
+      lines.push(`- ${item.label}: ${item.type} (${location(item)})`);
     } else if (item.label !== other.label || item.type !== other.type) {
-      lines.push(`~ ${location}: ${item.label} (${item.type}) -> ${other.label} (${other.type})`);
+      lines.push(
+        `~ ${location(item)}: ${item.label} (${item.type}) -> ${other.label} (${other.type})`
+      );
     } else if (item.contract !== other.contract) {
       lines.push(`~ ${item.label}: contract changed ${item.contract} -> ${other.contract}`);
     }
   }
-  for (const [k, { item, location }] of afterByKey) {
+  for (const [k, item] of afterByKey) {
     if (!beforeByKey.has(k)) {
-      lines.push(`+ ${item.label}: ${item.type} (${location})`);
+      lines.push(`+ ${item.label}: ${item.type} (${location(item)})`);
     }
   }
   const typeIds = /* @__PURE__ */ new Set([...Object.keys(before.types), ...Object.keys(after.types)]);
@@ -40226,11 +40258,11 @@ function diffLayouts(before, after) {
     const beforeType = before.types[id];
     const afterType = after.types[id];
     if (beforeType === void 0) {
-      lines.push(`+ type ${id}`);
+      lines.push(`+ type ${where}${id}`);
     } else if (afterType === void 0) {
-      lines.push(`- type ${id}`);
+      lines.push(`- type ${where}${id}`);
     } else if (!deepEqual(beforeType, afterType)) {
-      lines.push(`~ type ${id}: definition changed`);
+      lines.push(`~ type ${where}${id}: definition changed`);
     }
   }
   return lines;

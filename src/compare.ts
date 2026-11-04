@@ -1,6 +1,6 @@
 import {getStorageUpgradeReport, withValidationDefaults} from '@openzeppelin/upgrades-core'
 
-import {NormalizedLayout, NormalizedStorageItem} from './types'
+import {NormalizedLayout, NormalizedSection} from './types'
 
 export interface CompatibilityResult {
   pass: boolean
@@ -14,21 +14,13 @@ type UpgradesLayout = Parameters<typeof getStorageUpgradeReport>[0]
  * from AST data). Solc layouts have no `src`, so reuse the declaring
  * contract for readable messages.
  */
-function toUpgradesLayout(layout: NormalizedLayout): UpgradesLayout {
-  const withSrc = (items: NormalizedStorageItem[]): unknown[] =>
-    items.map(item => (item.contract === undefined ? item : {...item, src: item.contract}))
-  const upgradesLayout: Record<string, unknown> = {
-    storage: withSrc(layout.storage),
-    types: layout.types
-  }
-  // A namespace missing from the original is new and needs no check; one
-  // missing from the update is reported as deleted.
-  if (layout.namespaces !== undefined) {
-    upgradesLayout.namespaces = Object.fromEntries(
-      Object.entries(layout.namespaces).map(([location, items]) => [location, withSrc(items)])
-    )
-  }
-  return upgradesLayout as unknown as UpgradesLayout
+function toUpgradesLayout(section: NormalizedSection): UpgradesLayout {
+  return {
+    storage: section.storage.map(item =>
+      item.contract === undefined ? item : {...item, src: item.contract}
+    ),
+    types: section.types
+  } as unknown as UpgradesLayout
 }
 
 /**
@@ -39,6 +31,28 @@ function toUpgradesLayout(layout: NormalizedLayout): UpgradesLayout {
 export function checkCompatibility(
   oldLayout: NormalizedLayout,
   newLayout: NormalizedLayout,
+  unsafeAllowRenames: boolean
+): CompatibilityResult {
+  const failures: string[] = []
+  const plain = compareSection(oldLayout, newLayout, unsafeAllowRenames)
+  if (!plain.pass) failures.push(plain.explanation)
+  // Each ERC-7201 namespace is compared on its own types. A namespace missing
+  // from the base is new; one missing from the update is deleted.
+  for (const [location, before] of Object.entries(oldLayout.namespaces ?? {})) {
+    const after = newLayout.namespaces?.[location]
+    if (after === undefined) {
+      if (before.storage.length > 0) failures.push(`Deleted namespace \`${location}\``)
+      continue
+    }
+    const result = compareSection(before, after, unsafeAllowRenames)
+    if (!result.pass) failures.push(`${location}:\n${result.explanation}`)
+  }
+  return {pass: failures.length === 0, explanation: failures.join('\n')}
+}
+
+function compareSection(
+  oldLayout: NormalizedSection,
+  newLayout: NormalizedSection,
   unsafeAllowRenames: boolean
 ): CompatibilityResult {
   try {

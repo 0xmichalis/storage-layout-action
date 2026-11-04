@@ -207,7 +207,7 @@ describe('checkCompatibility with ERC-7201 namespaces', () => {
   })
   const withNamespace = (items: NormalizedLayout['storage']): NormalizedLayout => ({
     ...base,
-    namespaces: {[LOCATION]: items}
+    namespaces: {[LOCATION]: {storage: items, types: TYPES}}
   })
   const namespaced = withNamespace([at('total', NS_BASE), at('owner', NS_BASE + 1n, 't_address')])
 
@@ -220,7 +220,10 @@ describe('checkCompatibility with ERC-7201 namespaces', () => {
   })
 
   it('accepts members appended to a namespace', () => {
-    const upgraded = withNamespace([...namespaced.namespaces![LOCATION], at('fee', NS_BASE + 2n)])
+    const upgraded = withNamespace([
+      ...namespaced.namespaces![LOCATION].storage,
+      at('fee', NS_BASE + 2n)
+    ])
     expect(checkCompatibility(namespaced, upgraded, false).pass).toBe(true)
   })
 
@@ -247,5 +250,39 @@ describe('checkCompatibility with ERC-7201 namespaces', () => {
     const result = checkCompatibility(namespaced, base, false)
     expect(result.pass).toBe(false)
     expect(result.explanation).toContain(LOCATION)
+  })
+
+  it('checks struct members against the types of their namespace', () => {
+    const struct = (members: [string, string][]): NormalizedLayout['types'] => ({
+      ...TYPES,
+      't_struct(Info)storage': {
+        encoding: 'inplace',
+        label: 'struct Info',
+        numberOfBytes: String(32 * members.length),
+        members: members.map(([label, type], i) => ({label, offset: 0, slot: String(i), type}))
+      }
+    })
+    const layout = (members: [string, string][]): NormalizedLayout => ({
+      ...base,
+      types: struct([['unrelated', 't_address']]),
+      namespaces: {
+        [LOCATION]: {
+          storage: [at('info', NS_BASE, 't_struct(Info)storage')],
+          types: struct(members)
+        }
+      }
+    })
+    const before = layout([['total', 't_uint256']])
+    expect(checkCompatibility(before, before, false).pass).toBe(true)
+    expect(
+      checkCompatibility(
+        before,
+        layout([
+          ['sneaky', 't_uint256'],
+          ['total', 't_uint256']
+        ]),
+        false
+      ).pass
+    ).toBe(false)
   })
 })
