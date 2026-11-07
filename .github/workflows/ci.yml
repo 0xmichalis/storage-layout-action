@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Node dependencies
-        uses: 0xmichalis/repo-tooling/actions/setup-node@ed1b0c7db2764f49a7144c7eff80351a90b65ded # v1.0.0
+        uses: 0xmichalis/repo-tooling/actions/setup-node@d4f4c5b6fac20dbb0bb4cf85f5280d6948c4a3c8 # v1.1.0
         with:
           node-version: '22'
           package-manager: npm
@@ -39,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Node dependencies
-        uses: 0xmichalis/repo-tooling/actions/setup-node@ed1b0c7db2764f49a7144c7eff80351a90b65ded # v1.0.0
+        uses: 0xmichalis/repo-tooling/actions/setup-node@d4f4c5b6fac20dbb0bb4cf85f5280d6948c4a3c8 # v1.1.0
         with:
           node-version: '22'
           package-manager: npm
