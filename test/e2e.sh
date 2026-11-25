@@ -196,6 +196,7 @@ EOF
 new_repo fresh
 run_case fresh-and-compatible 0 'passed for 2 contract(s)' INPUT_BASE="$BASE_SHA"
 run_case no-base-event 0 'Compatibility check skipped'
+run_case unresolved-base 1 'could not resolve' INPUT_BASE=no-such-base
 run_case summary-written 0 '' INPUT_BASE="$BASE_SHA" GITHUB_STEP_SUMMARY="$TMP/summary.md"
 grep -q 'Storage layout check' "$TMP/summary.md" || {
   echo "FAIL summary-written (no summary content)"
@@ -205,6 +206,18 @@ grep -q 'Storage layout check' "$TMP/summary.md" || {
 new_repo stale
 append_var
 run_case stale-snapshot 1 'no longer matches the storage layout' INPUT_BASE="$BASE_SHA"
+
+new_repo unreadable-base-snapshot
+vault_blob="$(git -C "$CASE_DIR" rev-parse HEAD:storage-layouts/Vault.json)"
+rm "$CASE_DIR/.git/objects/${vault_blob:0:2}/${vault_blob:2}"
+run_case unreadable-base-snapshot 1 "could not read base snapshot 'storage-layouts/Vault.json'" INPUT_BASE="$BASE_SHA"
+
+new_repo malformed-base-snapshot
+node -e 'const fs = require("fs"); const file = process.argv[1]; const layout = JSON.parse(fs.readFileSync(file)); delete layout.storage[0].slot; fs.writeFileSync(file, JSON.stringify(layout))' "$CASE_DIR/storage-layouts/Vault.json"
+git -C "$CASE_DIR" commit -qam 'snapshot with missing slot'
+BASE_SHA="$(git -C "$CASE_DIR" rev-parse HEAD)"
+cp "$FIXTURE/storage-layouts/Vault.json" "$CASE_DIR/storage-layouts/Vault.json"
+run_case malformed-base-snapshot 1 'layout.storage[0] has invalid storage fields' INPUT_BASE="$BASE_SHA"
 
 new_repo append
 append_var

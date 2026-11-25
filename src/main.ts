@@ -20,7 +20,7 @@ import {
   ResolvedBase,
   snapshotsAtCommit
 } from './git'
-import {deepEqual, diffLayouts, normalizeLayout, parseLayout} from './layout'
+import {deepEqual, diffLayouts, normalizeLayout, parseLayout, readSnapshot} from './layout'
 import {NormalizedLayout} from './types'
 
 type Freshness = 'ok' | 'stale' | 'missing' | 'error'
@@ -55,7 +55,11 @@ function regenCommand(context: CheckContext, spec: ContractSpec): string {
   )}`
 }
 
-function checkContract(context: CheckContext, spec: ContractSpec): ContractOutcome {
+function checkContract(
+  context: CheckContext,
+  spec: ContractSpec,
+  hasBaseSnapshot: boolean
+): ContractOutcome {
   const outcome: ContractOutcome = {
     spec,
     freshness: 'ok',
@@ -64,23 +68,15 @@ function checkContract(context: CheckContext, spec: ContractSpec): ContractOutco
     compatibilityDetail: ''
   }
 
-  const baseContent =
-    context.base !== undefined && context.snapshotDirFromRoot !== undefined
-      ? fileAtCommit(
-          context.workingDirectory,
-          context.base.sha,
-          path.posix.join(context.snapshotDirFromRoot, `${spec.name}.json`)
-        )
-      : undefined
   const snapshotFile = path.join(context.snapshotDir, `${spec.name}.json`)
-  if (!fs.existsSync(snapshotFile)) {
+  const snapshotExists = fs.existsSync(snapshotFile)
+  if (!snapshotExists) {
     outcome.freshness = 'missing'
-    outcome.freshnessDetail =
-      baseContent !== undefined
-        ? `${spec.name}: snapshot deleted. Deleting a snapshot stops the storage check; restore it, or list the contract in \`removed-contracts\` if it was retired.`
-        : `No snapshot found for ${spec.name}. Create one and commit it:\n  ${regenCommand(context, spec)}${
-            spec.reason !== undefined ? `\n${spec.reason}` : ''
-          }`
+    outcome.freshnessDetail = hasBaseSnapshot
+      ? `${spec.name}: snapshot deleted. Deleting a snapshot stops the storage check; restore it, or list the contract in \`removed-contracts\` if it was retired.`
+      : `No snapshot found for ${spec.name}. Create one and commit it:\n  ${regenCommand(context, spec)}${
+          spec.reason !== undefined ? `\n${spec.reason}` : ''
+        }`
   }
 
   let current: NormalizedLayout
@@ -98,9 +94,9 @@ function checkContract(context: CheckContext, spec: ContractSpec): ContractOutco
     return outcome
   }
 
-  if (fs.existsSync(snapshotFile)) {
+  if (snapshotExists) {
     try {
-      const snapshot = normalizeLayout(parseLayout(fs.readFileSync(snapshotFile, 'utf8')))
+      const snapshot = normalizeLayout(readSnapshot(snapshotFile))
       if (!deepEqual(snapshot, current)) {
         outcome.freshness = 'stale'
         outcome.freshnessDetail = `The committed snapshot no longer matches the storage layout of ${spec.name}:\n${diffLayouts(
@@ -123,7 +119,7 @@ function checkContract(context: CheckContext, spec: ContractSpec): ContractOutco
     return outcome
   }
 
-  if (baseContent === undefined) {
+  if (!hasBaseSnapshot) {
     outcome.compatibility = 'new-contract'
     outcome.compatibilityDetail = `no snapshot at ${context.base.sha.slice(0, 12)}; nothing to compare against`
     return outcome
@@ -131,10 +127,15 @@ function checkContract(context: CheckContext, spec: ContractSpec): ContractOutco
 
   let baseLayout: NormalizedLayout
   try {
-    baseLayout = normalizeLayout(parseLayout(baseContent))
+    const content = fileAtCommit(
+      context.workingDirectory,
+      context.base.sha,
+      path.posix.join(context.snapshotDirFromRoot, `${spec.name}.json`)
+    )
+    baseLayout = normalizeLayout(parseLayout(content))
   } catch (error) {
     outcome.compatibility = 'error'
-    outcome.compatibilityDetail = `snapshot at ${context.base.sha.slice(0, 12)} is invalid: ${
+    outcome.compatibilityDetail = `could not check snapshot at ${context.base.sha.slice(0, 12)}: ${
       error instanceof Error ? error.message : String(error)
     }`
     return outcome
@@ -279,7 +280,7 @@ export function main(): void {
     context.baseSkipReason = 'not inside a git repository'
   } else {
     const fromRoot = path.relative(git.root, snapshotDir)
-    if (fromRoot.startsWith('..')) {
+    if (fromRoot === '..' || fromRoot.startsWith(`..${path.sep}`) || path.isAbsolute(fromRoot)) {
       context.baseSkipReason = `snapshot directory '${snapshotDir}' is outside the git repository`
     } else {
       context.snapshotDirFromRoot = toPosix(fromRoot)
@@ -294,7 +295,8 @@ export function main(): void {
       } else {
         const resolved = resolveBaseCommit(workingDirectory, candidate)
         if ('reason' in resolved) {
-          context.baseSkipReason = resolved.reason
+          fail(resolved.reason)
+          return
         } else {
           context.base = resolved
         }
@@ -304,6 +306,9 @@ export function main(): void {
 
   if (context.base !== undefined) {
     gha.info(`Comparing against ${context.base.sha} (${context.base.description})`)
+  } else if (baseInput !== '') {
+    fail(`cannot use the requested base: ${context.baseSkipReason}`)
+    return
   } else {
     gha.notice(`Compatibility check skipped: ${context.baseSkipReason}`)
   }
@@ -342,9 +347,10 @@ export function main(): void {
   }
 
   let specs: ContractSpec[]
+  let baseNames: string[]
   let removed: string[] = []
   try {
-    const baseNames =
+    baseNames =
       context.base !== undefined && context.snapshotDirFromRoot !== undefined
         ? snapshotsAtCommit(workingDirectory, context.base.sha, context.snapshotDirFromRoot)
         : []
@@ -375,9 +381,10 @@ export function main(): void {
   }
 
   const outcomes: ContractOutcome[] = []
+  const baseSnapshots = new Set(baseNames)
   for (const spec of specs) {
     gha.startGroup(`Checking ${spec.name}`)
-    const outcome = checkContract(context, spec)
+    const outcome = checkContract(context, spec, baseSnapshots.has(spec.name))
     gha.info(`snapshot: ${outcome.freshness}`)
     if (outcome.freshnessDetail !== '') gha.info(outcome.freshnessDetail)
     gha.info(`compatibility: ${outcome.compatibility}`)

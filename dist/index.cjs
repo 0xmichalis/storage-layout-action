@@ -33159,14 +33159,14 @@ var require_graceful_fs = __commonJS({
         return close;
       })(fs5.close);
       fs5.closeSync = (function(fs$closeSync) {
-        function closeSync(fd) {
+        function closeSync2(fd) {
           fs$closeSync.apply(fs5, arguments);
           resetQueue();
         }
-        Object.defineProperty(closeSync, previousSymbol, {
+        Object.defineProperty(closeSync2, previousSymbol, {
           value: fs$closeSync
         });
-        return closeSync;
+        return closeSync2;
       })(fs5.closeSync);
       if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || "")) {
         process.on("exit", function() {
@@ -40734,7 +40734,35 @@ function findRequiredContracts(projectRoot, config, rules) {
 
 // src/layout.ts
 var import_upgrades_core2 = __toESM(require_dist3());
+var import_node_fs = require("node:fs");
+
+// src/run.ts
+var import_child_process = require("child_process");
+var MAX_COMMAND_OUTPUT_BYTES = 64 * 1024 * 1024;
+function run(command, args, cwd) {
+  const result = (0, import_child_process.spawnSync)(command, args, {
+    cwd,
+    encoding: "utf8",
+    maxBuffer: MAX_COMMAND_OUTPUT_BYTES
+  });
+  return {
+    ok: result.status === 0 && result.error === void 0,
+    stdout: result.stdout ?? "",
+    stderr: result.error !== void 0 ? String(result.error) : result.stderr ?? ""
+  };
+}
+function tail(output) {
+  const maxChars = 16 * 1024;
+  const lines = output.slice(-maxChars).split("\n").filter((line) => line.trim() !== "");
+  return lines.slice(-20).join("\n");
+}
+
+// src/layout.ts
 var NAMESPACED_TYPE = /^erc7201\((.+?)\)::(.+)$/;
+var SLOT_BYTES = 32;
+var SLOT_MAX = (1n << 256n) - 1n;
+var SLOT_MAX_DECIMAL = SLOT_MAX.toString();
+var TYPE_BYTES_MAX_DECIMAL = (SLOT_MAX * BigInt(SLOT_BYTES)).toString();
 function splitNamespace(typeId) {
   const match = NAMESPACED_TYPE.exec(typeId);
   return match === null ? { type: typeId } : { namespace: match[1], type: match[2] };
@@ -40774,7 +40802,13 @@ function normalizeLayout(raw) {
 }
 function normalizeSection(raw, location) {
   const where = location === void 0 ? "" : ` in ${location}`;
+  const positions = /* @__PURE__ */ new Set();
   const storage = raw.storage.map((item) => {
+    const position = storagePosition(item);
+    if (positions.has(position)) {
+      throw new Error(`invalid layout: duplicate slot ${item.slot} offset ${item.offset}${where}`);
+    }
+    positions.add(position);
     const normalized = {
       label: item.label,
       offset: item.offset,
@@ -40795,7 +40829,7 @@ function normalizeSection(raw, location) {
           `distinct types share the identifier ${key}${where} (${previous.label} vs ${normalized.label}); the storage layout cannot be compared safely`
         );
       }
-      if ((previous.label ?? "") <= (normalized.label ?? "")) continue;
+      if (previous.label <= normalized.label) continue;
     }
     types[key] = normalized;
   }
@@ -40806,7 +40840,7 @@ function normalizeSection(raw, location) {
 function assertTypeReferencesResolve(section, where) {
   const missing = /* @__PURE__ */ new Set();
   const needs = (id) => {
-    if (section.types[id] === void 0) missing.add(id);
+    if (!Object.hasOwn(section.types, id)) missing.add(id);
   };
   for (const item of section.storage) needs(item.type);
   for (const type of Object.values(section.types)) {
@@ -40822,10 +40856,8 @@ function assertTypeReferencesResolve(section, where) {
   }
 }
 function normalizeType(type) {
-  const normalized = {};
+  const normalized = { label: type.label, numberOfBytes: type.numberOfBytes };
   if (type.encoding !== void 0) normalized.encoding = type.encoding;
-  if (type.label !== void 0) normalized.label = type.label;
-  if (type.numberOfBytes !== void 0) normalized.numberOfBytes = type.numberOfBytes;
   if (type.members !== void 0) {
     normalized.members = type.members.map((member) => ({
       label: member.label,
@@ -40839,6 +40871,28 @@ function normalizeType(type) {
   if (type.value !== void 0) normalized.value = stabilize(type.value);
   return normalized;
 }
+function readSnapshot(file) {
+  const fd = (0, import_node_fs.openSync)(file, import_node_fs.constants.O_RDONLY | import_node_fs.constants.O_NONBLOCK);
+  try {
+    const stat = (0, import_node_fs.fstatSync)(fd);
+    if (!stat.isFile()) throw new Error("snapshot must be a regular file");
+    const { size } = stat;
+    if (size > MAX_COMMAND_OUTPUT_BYTES) {
+      throw new Error(`snapshot exceeds ${MAX_COMMAND_OUTPUT_BYTES} bytes`);
+    }
+    const buffer = Buffer.alloc(size + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const read = (0, import_node_fs.readSync)(fd, buffer, length, buffer.length - length, null);
+      if (read === 0) break;
+      length += read;
+    }
+    if (length !== size) throw new Error("snapshot size changed during read");
+    return parseLayout(buffer.toString("utf8", 0, length));
+  } finally {
+    (0, import_node_fs.closeSync)(fd);
+  }
+}
 function parseLayout(json) {
   let parsed;
   try {
@@ -40846,10 +40900,62 @@ function parseLayout(json) {
   } catch (error2) {
     throw new Error(`invalid JSON: ${error2 instanceof Error ? error2.message : String(error2)}`);
   }
-  if (typeof parsed !== "object" || parsed === null || !Array.isArray(parsed.storage)) {
+  if (!isRecord(parsed) || !Array.isArray(parsed.storage)) {
     throw new Error("invalid layout: expected an object with a `storage` array");
   }
+  assertSection(parsed, "layout");
+  if (parsed.namespaces !== void 0) {
+    if (!isRecord(parsed.namespaces))
+      throw new Error("invalid layout: `namespaces` must be an object");
+    for (const [location, section] of Object.entries(parsed.namespaces)) {
+      if (!location.startsWith("erc7201:") || location === "erc7201:") {
+        throw new Error("invalid layout: expected an ERC-7201 namespace location");
+      }
+      assertSection(section, location);
+    }
+  }
   return parsed;
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isDecimal(value, max) {
+  return typeof value === "string" && value.length <= max.length && /^(0|[1-9][0-9]*)$/.test(value) && (value.length < max.length || value <= max);
+}
+function isTypeId(value) {
+  return typeof value === "string" && /^t_.+/.test(splitNamespace(value).type);
+}
+function assertItems(items, where) {
+  for (const [index, item] of items.entries()) {
+    if (!isRecord(item) || typeof item.label !== "string" || item.label === "" || !isDecimal(item.slot, SLOT_MAX_DECIMAL) || typeof item.offset !== "number" || !Number.isInteger(item.offset) || item.offset < 0 || item.offset >= SLOT_BYTES || !isTypeId(item.type) || item.contract !== void 0 && typeof item.contract !== "string") {
+      throw new Error(`invalid layout: ${where}[${index}] has invalid storage fields`);
+    }
+  }
+}
+function assertSection(section, where) {
+  if (!isRecord(section) || !Array.isArray(section.storage)) {
+    throw new Error(`invalid layout: ${where} must have a storage array`);
+  }
+  assertItems(section.storage, `${where}.storage`);
+  if (section.types === void 0 || section.types === null) return;
+  if (!isRecord(section.types)) throw new Error(`invalid layout: ${where}.types must be an object`);
+  for (const [id, type] of Object.entries(section.types)) {
+    const field = `${where}.types[${id}]`;
+    if (!isTypeId(id) || !isRecord(type) || typeof type.label !== "string" || type.label === "" || !isDecimal(type.numberOfBytes, TYPE_BYTES_MAX_DECIMAL) || type.numberOfBytes === "0" || type.encoding !== void 0 && typeof type.encoding !== "string") {
+      throw new Error(`invalid layout: ${field} has invalid type fields`);
+    }
+    for (const ref of ["base", "key", "value"]) {
+      if (type[ref] !== void 0 && !isTypeId(type[ref])) {
+        throw new Error(`invalid layout: ${field}.${ref} must be a type identifier`);
+      }
+    }
+    if (type.members !== void 0) {
+      if (!Array.isArray(type.members)) {
+        throw new Error(`invalid layout: ${field}.members must be an array`);
+      }
+      assertItems(type.members, `${field}.members`);
+    }
+  }
 }
 function deepEqual(a, b) {
   if (a === b) return true;
@@ -40867,44 +40973,55 @@ function deepEqual(a, b) {
   return false;
 }
 function diffLayouts(before, after) {
-  const lines = diffSection(before, after, "");
+  const lines = [];
+  const maxLines = 100;
+  const maxChars = 16 * 1024;
+  let chars = 0;
+  for (const line of diffLayoutLines(before, after)) {
+    chars += line.length + 1;
+    if (lines.length === maxLines || chars > maxChars) {
+      lines.push("Additional storage layout differences omitted.");
+      break;
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+function* diffLayoutLines(before, after) {
+  yield* diffSection(before, after, "");
   const empty = { storage: [], types: {} };
   const locations = /* @__PURE__ */ new Set([
     ...Object.keys(before.namespaces ?? {}),
     ...Object.keys(after.namespaces ?? {})
   ]);
   for (const location of locations) {
-    lines.push(
-      ...diffSection(
-        before.namespaces?.[location] ?? empty,
-        after.namespaces?.[location] ?? empty,
-        `${location} `
-      )
+    yield* diffSection(
+      before.namespaces?.[location] ?? empty,
+      after.namespaces?.[location] ?? empty,
+      `${location} `
     );
   }
-  return lines;
 }
-function diffSection(before, after, where) {
-  const lines = [];
+function storagePosition(item) {
+  return `${item.slot}:${item.offset}`;
+}
+function* diffSection(before, after, where) {
   const location = (item) => `${where}slot ${item.slot} offset ${item.offset}`;
-  const key = (item) => `${item.slot}:${item.offset}`;
-  const beforeByKey = new Map(before.storage.map((item) => [key(item), item]));
-  const afterByKey = new Map(after.storage.map((item) => [key(item), item]));
+  const beforeByKey = new Map(before.storage.map((item) => [storagePosition(item), item]));
+  const afterByKey = new Map(after.storage.map((item) => [storagePosition(item), item]));
   for (const [k, item] of beforeByKey) {
     const other = afterByKey.get(k);
     if (other === void 0) {
-      lines.push(`- ${item.label}: ${item.type} (${location(item)})`);
+      yield `- ${item.label}: ${item.type} (${location(item)})`;
     } else if (item.label !== other.label || item.type !== other.type) {
-      lines.push(
-        `~ ${location(item)}: ${item.label} (${item.type}) -> ${other.label} (${other.type})`
-      );
+      yield `~ ${location(item)}: ${item.label} (${item.type}) -> ${other.label} (${other.type})`;
     } else if (item.contract !== other.contract) {
-      lines.push(`~ ${item.label}: contract changed ${item.contract} -> ${other.contract}`);
+      yield `~ ${item.label}: contract changed ${item.contract} -> ${other.contract}`;
     }
   }
   for (const [k, item] of afterByKey) {
     if (!beforeByKey.has(k)) {
-      lines.push(`+ ${item.label}: ${item.type} (${location(item)})`);
+      yield `+ ${item.label}: ${item.type} (${location(item)})`;
     }
   }
   const typeIds = /* @__PURE__ */ new Set([...Object.keys(before.types), ...Object.keys(after.types)]);
@@ -40912,33 +41029,13 @@ function diffSection(before, after, where) {
     const beforeType = before.types[id];
     const afterType = after.types[id];
     if (beforeType === void 0) {
-      lines.push(`+ type ${where}${id}`);
+      yield `+ type ${where}${id}`;
     } else if (afterType === void 0) {
-      lines.push(`- type ${where}${id}`);
+      yield `- type ${where}${id}`;
     } else if (!deepEqual(beforeType, afterType)) {
-      lines.push(`~ type ${where}${id}: definition changed`);
+      yield `~ type ${where}${id}: definition changed`;
     }
   }
-  return lines;
-}
-
-// src/run.ts
-var import_child_process = require("child_process");
-function run(command, args, cwd) {
-  const result = (0, import_child_process.spawnSync)(command, args, {
-    cwd,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024
-  });
-  return {
-    ok: result.status === 0 && result.error === void 0,
-    stdout: result.stdout ?? "",
-    stderr: result.error !== void 0 ? String(result.error) : result.stderr ?? ""
-  };
-}
-function tail(output, maxLines = 20) {
-  const lines = output.split("\n").filter((line) => line.trim() !== "");
-  return lines.slice(-maxLines).join("\n");
 }
 
 // src/forge.ts
@@ -41115,18 +41212,19 @@ function resolveBaseCommit(cwd, candidate) {
   return { reason: `could not resolve '${ref}' (${description}) to a commit` };
 }
 function fileAtCommit(cwd, sha, repoRelPath) {
-  const result = run("git", ["show", `${sha}:${repoRelPath}`], cwd);
-  return result.ok ? result.stdout : void 0;
+  const result = run("git", ["cat-file", "blob", `${sha}:${repoRelPath}`], cwd);
+  if (!result.ok) throw new Error(`could not read base snapshot '${repoRelPath}' from git`);
+  return result.stdout;
 }
 function snapshotsAtCommit(cwd, sha, snapshotDir) {
-  const result = run("git", ["ls-tree", "-z", "--name-only", `${sha}:${snapshotDir || "."}`], cwd);
+  const prefix = snapshotDir === "" ? "" : `${snapshotDir}/`;
+  const args = ["--literal-pathspecs", "ls-tree", "--full-tree", "-z", "--name-only", sha];
+  if (prefix !== "") args.push("--", prefix);
+  const result = run("git", args, cwd);
   if (!result.ok) {
-    if (run("git", ["cat-file", "-e", `${sha}:${snapshotDir || "."}`], cwd).ok) {
-      throw new Error(`Could not list base snapshots in '${snapshotDir}'`);
-    }
-    return [];
+    throw new Error(`Could not list base snapshots in '${snapshotDir || "."}'`);
   }
-  return result.stdout.split("\0").filter((file) => file.endsWith(".json")).map((file) => file.slice(0, -5));
+  return result.stdout.split("\0").filter((file) => file.startsWith(prefix) && file.endsWith(".json")).map((file) => file.slice(prefix.length, -5)).filter((name) => !name.includes("/"));
 }
 
 // src/main.ts
@@ -41137,7 +41235,7 @@ function regenCommand(context, spec) {
     `${spec.name}.json`
   )}`;
 }
-function checkContract(context, spec) {
+function checkContract(context, spec, hasBaseSnapshot) {
   const outcome = {
     spec,
     freshness: "ok",
@@ -41145,15 +41243,11 @@ function checkContract(context, spec) {
     compatibility: "skipped",
     compatibilityDetail: ""
   };
-  const baseContent = context.base !== void 0 && context.snapshotDirFromRoot !== void 0 ? fileAtCommit(
-    context.workingDirectory,
-    context.base.sha,
-    path3.posix.join(context.snapshotDirFromRoot, `${spec.name}.json`)
-  ) : void 0;
   const snapshotFile = path3.join(context.snapshotDir, `${spec.name}.json`);
-  if (!fs4.existsSync(snapshotFile)) {
+  const snapshotExists = fs4.existsSync(snapshotFile);
+  if (!snapshotExists) {
     outcome.freshness = "missing";
-    outcome.freshnessDetail = baseContent !== void 0 ? `${spec.name}: snapshot deleted. Deleting a snapshot stops the storage check; restore it, or list the contract in \`removed-contracts\` if it was retired.` : `No snapshot found for ${spec.name}. Create one and commit it:
+    outcome.freshnessDetail = hasBaseSnapshot ? `${spec.name}: snapshot deleted. Deleting a snapshot stops the storage check; restore it, or list the contract in \`removed-contracts\` if it was retired.` : `No snapshot found for ${spec.name}. Create one and commit it:
   ${regenCommand(context, spec)}${spec.reason !== void 0 ? `
 ${spec.reason}` : ""}`;
   }
@@ -41169,9 +41263,9 @@ ${spec.reason}` : ""}`;
     outcome.compatibilityDetail = "skipped: could not extract the current storage layout";
     return outcome;
   }
-  if (fs4.existsSync(snapshotFile)) {
+  if (snapshotExists) {
     try {
-      const snapshot = normalizeLayout(parseLayout(fs4.readFileSync(snapshotFile, "utf8")));
+      const snapshot = normalizeLayout(readSnapshot(snapshotFile));
       if (!deepEqual(snapshot, current)) {
         outcome.freshness = "stale";
         outcome.freshnessDetail = `The committed snapshot no longer matches the storage layout of ${spec.name}:
@@ -41192,17 +41286,22 @@ Regenerate it and commit the result:
     outcome.compatibilityDetail = `skipped: ${context.baseSkipReason ?? "no base to compare against"}`;
     return outcome;
   }
-  if (baseContent === void 0) {
+  if (!hasBaseSnapshot) {
     outcome.compatibility = "new-contract";
     outcome.compatibilityDetail = `no snapshot at ${context.base.sha.slice(0, 12)}; nothing to compare against`;
     return outcome;
   }
   let baseLayout;
   try {
-    baseLayout = normalizeLayout(parseLayout(baseContent));
+    const content = fileAtCommit(
+      context.workingDirectory,
+      context.base.sha,
+      path3.posix.join(context.snapshotDirFromRoot, `${spec.name}.json`)
+    );
+    baseLayout = normalizeLayout(parseLayout(content));
   } catch (error2) {
     outcome.compatibility = "error";
-    outcome.compatibilityDetail = `snapshot at ${context.base.sha.slice(0, 12)} is invalid: ${error2 instanceof Error ? error2.message : String(error2)}`;
+    outcome.compatibilityDetail = `could not check snapshot at ${context.base.sha.slice(0, 12)}: ${error2 instanceof Error ? error2.message : String(error2)}`;
     return outcome;
   }
   const result = checkCompatibility(baseLayout, current, context.unsafeAllowRenames);
@@ -41322,7 +41421,7 @@ function main() {
     context.baseSkipReason = "not inside a git repository";
   } else {
     const fromRoot = path3.relative(git.root, snapshotDir);
-    if (fromRoot.startsWith("..")) {
+    if (fromRoot === ".." || fromRoot.startsWith(`..${path3.sep}`) || path3.isAbsolute(fromRoot)) {
       context.baseSkipReason = `snapshot directory '${snapshotDir}' is outside the git repository`;
     } else {
       context.snapshotDirFromRoot = toPosix(fromRoot);
@@ -41337,7 +41436,8 @@ function main() {
       } else {
         const resolved = resolveBaseCommit(workingDirectory, candidate);
         if ("reason" in resolved) {
-          context.baseSkipReason = resolved.reason;
+          fail(resolved.reason);
+          return;
         } else {
           context.base = resolved;
         }
@@ -41346,6 +41446,9 @@ function main() {
   }
   if (context.base !== void 0) {
     info(`Comparing against ${context.base.sha} (${context.base.description})`);
+  } else if (baseInput !== "") {
+    fail(`cannot use the requested base: ${context.baseSkipReason}`);
+    return;
   } else {
     notice(`Compatibility check skipped: ${context.baseSkipReason}`);
   }
@@ -41382,9 +41485,10 @@ function main() {
     notice("`exempt-contracts` has no effect without `require-snapshots`.");
   }
   let specs;
+  let baseNames;
   let removed = [];
   try {
-    const baseNames = context.base !== void 0 && context.snapshotDirFromRoot !== void 0 ? snapshotsAtCommit(workingDirectory, context.base.sha, context.snapshotDirFromRoot) : [];
+    baseNames = context.base !== void 0 && context.snapshotDirFromRoot !== void 0 ? snapshotsAtCommit(workingDirectory, context.base.sha, context.snapshotDirFromRoot) : [];
     specs = resolveContractSet(contractsInput, snapshotDir, baseNames, required);
     if (context.base !== void 0) {
       const removals = resolveRemovedContracts(removedInput, snapshotDir, baseNames);
@@ -41411,9 +41515,10 @@ and commit the results, or set the \`contracts\` input.`
     return;
   }
   const outcomes = [];
+  const baseSnapshots = new Set(baseNames);
   for (const spec of specs) {
     startGroup(`Checking ${spec.name}`);
-    const outcome = checkContract(context, spec);
+    const outcome = checkContract(context, spec, baseSnapshots.has(spec.name));
     info(`snapshot: ${outcome.freshness}`);
     if (outcome.freshnessDetail !== "") info(outcome.freshnessDetail);
     info(`compatibility: ${outcome.compatibility}`);
