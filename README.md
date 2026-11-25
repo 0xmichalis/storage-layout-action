@@ -159,8 +159,10 @@ are checked and `removed-contracts` has no effect.
 | `merge_group` | The merge queue base |
 | anything else | Compatibility is skipped unless `base` is set |
 
-The freshness check always runs. When a contract has no snapshot at the base
-(a new contract), the compatibility check is skipped for it.
+Freshness is checked even on events with no implicit base. When a contract has
+no snapshot at the base (a new contract), the compatibility check is skipped for it.
+The action fails if a selected base ref cannot be resolved or a snapshot
+listed at that base cannot be read. Storage layout JSON is limited to 64 MiB.
 
 ## Notes and limitations
 

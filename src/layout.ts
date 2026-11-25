@@ -1,5 +1,7 @@
 import {stabilizeTypeIdentifier} from '@openzeppelin/upgrades-core'
+import {closeSync, constants as fsFlags, fstatSync, openSync, readSync} from 'node:fs'
 
+import {MAX_COMMAND_OUTPUT_BYTES} from './run'
 import {
   NormalizedLayout,
   NormalizedSection,
@@ -22,6 +24,10 @@ import {
  * does.
  */
 const NAMESPACED_TYPE = /^erc7201\((.+?)\)::(.+)$/
+const SLOT_BYTES = 32
+const SLOT_MAX = (1n << 256n) - 1n
+const SLOT_MAX_DECIMAL = SLOT_MAX.toString()
+const TYPE_BYTES_MAX_DECIMAL = (SLOT_MAX * BigInt(SLOT_BYTES)).toString()
 
 function splitNamespace(typeId: string): {namespace?: string; type: string} {
   const match = NAMESPACED_TYPE.exec(typeId)
@@ -78,7 +84,13 @@ export function normalizeLayout(raw: RawLayout): NormalizedLayout {
 
 function normalizeSection(raw: RawSection, location?: string): NormalizedSection {
   const where = location === undefined ? '' : ` in ${location}`
+  const positions = new Set<string>()
   const storage: NormalizedStorageItem[] = raw.storage.map(item => {
+    const position = storagePosition(item)
+    if (positions.has(position)) {
+      throw new Error(`invalid layout: duplicate slot ${item.slot} offset ${item.offset}${where}`)
+    }
+    positions.add(position)
     const normalized: NormalizedStorageItem = {
       label: item.label,
       offset: item.offset,
@@ -106,7 +118,7 @@ function normalizeSection(raw: RawSection, location?: string): NormalizedSection
       }
       // Identical definitions under different labels: keep the smaller label
       // so the result does not depend on the order of the AST ids.
-      if ((previous.label ?? '') <= (normalized.label ?? '')) continue
+      if (previous.label <= normalized.label) continue
     }
     types[key] = normalized
   }
@@ -125,7 +137,7 @@ function normalizeSection(raw: RawSection, location?: string): NormalizedSection
 function assertTypeReferencesResolve(section: NormalizedSection, where: string): void {
   const missing = new Set<string>()
   const needs = (id: string): void => {
-    if (section.types[id] === undefined) missing.add(id)
+    if (!Object.hasOwn(section.types, id)) missing.add(id)
   }
   for (const item of section.storage) needs(item.type)
   for (const type of Object.values(section.types)) {
@@ -142,10 +154,8 @@ function assertTypeReferencesResolve(section: NormalizedSection, where: string):
 }
 
 function normalizeType(type: RawType): NormalizedType {
-  const normalized: NormalizedType = {}
+  const normalized: NormalizedType = {label: type.label, numberOfBytes: type.numberOfBytes}
   if (type.encoding !== undefined) normalized.encoding = type.encoding
-  if (type.label !== undefined) normalized.label = type.label
-  if (type.numberOfBytes !== undefined) normalized.numberOfBytes = type.numberOfBytes
   if (type.members !== undefined) {
     normalized.members = type.members.map(member => ({
       label: member.label,
@@ -160,6 +170,30 @@ function normalizeType(type: RawType): NormalizedType {
   return normalized
 }
 
+/** Uses the same size limit for working tree files as for git and forge output. */
+export function readSnapshot(file: string): RawLayout {
+  const fd = openSync(file, fsFlags.O_RDONLY | fsFlags.O_NONBLOCK)
+  try {
+    const stat = fstatSync(fd)
+    if (!stat.isFile()) throw new Error('snapshot must be a regular file')
+    const {size} = stat
+    if (size > MAX_COMMAND_OUTPUT_BYTES) {
+      throw new Error(`snapshot exceeds ${MAX_COMMAND_OUTPUT_BYTES} bytes`)
+    }
+    const buffer = Buffer.alloc(size + 1)
+    let length = 0
+    while (length < buffer.length) {
+      const read = readSync(fd, buffer, length, buffer.length - length, null)
+      if (read === 0) break
+      length += read
+    }
+    if (length !== size) throw new Error('snapshot size changed during read')
+    return parseLayout(buffer.toString('utf8', 0, length))
+  } finally {
+    closeSync(fd)
+  }
+}
+
 export function parseLayout(json: string): RawLayout {
   let parsed: unknown
   try {
@@ -167,14 +201,92 @@ export function parseLayout(json: string): RawLayout {
   } catch (error) {
     throw new Error(`invalid JSON: ${error instanceof Error ? error.message : String(error)}`)
   }
-  if (
-    typeof parsed !== 'object' ||
-    parsed === null ||
-    !Array.isArray((parsed as RawLayout).storage)
-  ) {
+  if (!isRecord(parsed) || !Array.isArray(parsed.storage)) {
     throw new Error('invalid layout: expected an object with a `storage` array')
   }
-  return parsed as RawLayout
+  assertSection(parsed, 'layout')
+  if (parsed.namespaces !== undefined) {
+    if (!isRecord(parsed.namespaces))
+      throw new Error('invalid layout: `namespaces` must be an object')
+    for (const [location, section] of Object.entries(parsed.namespaces)) {
+      if (!location.startsWith('erc7201:') || location === 'erc7201:') {
+        throw new Error('invalid layout: expected an ERC-7201 namespace location')
+      }
+      assertSection(section, location)
+    }
+  }
+  return parsed
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isDecimal(value: unknown, max: string): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length <= max.length &&
+    /^(0|[1-9][0-9]*)$/.test(value) &&
+    (value.length < max.length || value <= max)
+  )
+}
+
+function isTypeId(value: unknown): value is string {
+  return typeof value === 'string' && /^t_.+/.test(splitNamespace(value).type)
+}
+
+function assertItems(items: unknown[], where: string): void {
+  for (const [index, item] of items.entries()) {
+    if (
+      !isRecord(item) ||
+      typeof item.label !== 'string' ||
+      item.label === '' ||
+      !isDecimal(item.slot, SLOT_MAX_DECIMAL) ||
+      typeof item.offset !== 'number' ||
+      !Number.isInteger(item.offset) ||
+      item.offset < 0 ||
+      item.offset >= SLOT_BYTES ||
+      !isTypeId(item.type) ||
+      (item.contract !== undefined && typeof item.contract !== 'string')
+    ) {
+      throw new Error(`invalid layout: ${where}[${index}] has invalid storage fields`)
+    }
+  }
+}
+
+function assertSection(section: unknown, where: string): asserts section is RawSection {
+  if (!isRecord(section) || !Array.isArray(section.storage)) {
+    throw new Error(`invalid layout: ${where} must have a storage array`)
+  }
+  assertItems(section.storage, `${where}.storage`)
+  if (section.types === undefined || section.types === null) return
+  if (!isRecord(section.types)) throw new Error(`invalid layout: ${where}.types must be an object`)
+
+  for (const [id, type] of Object.entries(section.types)) {
+    const field = `${where}.types[${id}]`
+    if (
+      !isTypeId(id) ||
+      !isRecord(type) ||
+      typeof type.label !== 'string' ||
+      type.label === '' ||
+      !isDecimal(type.numberOfBytes, TYPE_BYTES_MAX_DECIMAL) ||
+      type.numberOfBytes === '0' ||
+      (type.encoding !== undefined && typeof type.encoding !== 'string')
+    ) {
+      throw new Error(`invalid layout: ${field} has invalid type fields`)
+    }
+    for (const ref of ['base', 'key', 'value']) {
+      if (type[ref] !== undefined && !isTypeId(type[ref])) {
+        throw new Error(`invalid layout: ${field}.${ref} must be a type identifier`)
+      }
+    }
+    if (type.members !== undefined) {
+      if (!Array.isArray(type.members)) {
+        throw new Error(`invalid layout: ${field}.members must be an array`)
+      }
+      assertItems(type.members, `${field}.members`)
+    }
+  }
 }
 
 /** Deep equality; object key order insensitive, array order sensitive. */
@@ -199,48 +311,65 @@ export function deepEqual(a: unknown, b: unknown): boolean {
  * why a committed snapshot no longer matches the current code.
  */
 export function diffLayouts(before: NormalizedLayout, after: NormalizedLayout): string[] {
-  const lines = diffSection(before, after, '')
+  const lines: string[] = []
+  const maxLines = 100
+  const maxChars = 16 * 1024
+  let chars = 0
+  for (const line of diffLayoutLines(before, after)) {
+    chars += line.length + 1
+    if (lines.length === maxLines || chars > maxChars) {
+      lines.push('Additional storage layout differences omitted.')
+      break
+    }
+    lines.push(line)
+  }
+  return lines
+}
+
+function* diffLayoutLines(before: NormalizedLayout, after: NormalizedLayout): Generator<string> {
+  yield* diffSection(before, after, '')
   const empty: NormalizedSection = {storage: [], types: {}}
   const locations = new Set([
     ...Object.keys(before.namespaces ?? {}),
     ...Object.keys(after.namespaces ?? {})
   ])
   for (const location of locations) {
-    lines.push(
-      ...diffSection(
-        before.namespaces?.[location] ?? empty,
-        after.namespaces?.[location] ?? empty,
-        `${location} `
-      )
+    yield* diffSection(
+      before.namespaces?.[location] ?? empty,
+      after.namespaces?.[location] ?? empty,
+      `${location} `
     )
   }
-  return lines
 }
 
-function diffSection(before: NormalizedSection, after: NormalizedSection, where: string): string[] {
-  const lines: string[] = []
+function storagePosition(item: NormalizedStorageItem): string {
+  return `${item.slot}:${item.offset}`
+}
+
+function* diffSection(
+  before: NormalizedSection,
+  after: NormalizedSection,
+  where: string
+): Generator<string> {
   const location = (item: NormalizedStorageItem): string =>
     `${where}slot ${item.slot} offset ${item.offset}`
-  const key = (item: NormalizedStorageItem): string => `${item.slot}:${item.offset}`
 
-  const beforeByKey = new Map(before.storage.map(item => [key(item), item]))
-  const afterByKey = new Map(after.storage.map(item => [key(item), item]))
+  const beforeByKey = new Map(before.storage.map(item => [storagePosition(item), item]))
+  const afterByKey = new Map(after.storage.map(item => [storagePosition(item), item]))
 
   for (const [k, item] of beforeByKey) {
     const other = afterByKey.get(k)
     if (other === undefined) {
-      lines.push(`- ${item.label}: ${item.type} (${location(item)})`)
+      yield `- ${item.label}: ${item.type} (${location(item)})`
     } else if (item.label !== other.label || item.type !== other.type) {
-      lines.push(
-        `~ ${location(item)}: ${item.label} (${item.type}) -> ${other.label} (${other.type})`
-      )
+      yield `~ ${location(item)}: ${item.label} (${item.type}) -> ${other.label} (${other.type})`
     } else if (item.contract !== other.contract) {
-      lines.push(`~ ${item.label}: contract changed ${item.contract} -> ${other.contract}`)
+      yield `~ ${item.label}: contract changed ${item.contract} -> ${other.contract}`
     }
   }
   for (const [k, item] of afterByKey) {
     if (!beforeByKey.has(k)) {
-      lines.push(`+ ${item.label}: ${item.type} (${location(item)})`)
+      yield `+ ${item.label}: ${item.type} (${location(item)})`
     }
   }
 
@@ -249,13 +378,11 @@ function diffSection(before: NormalizedSection, after: NormalizedSection, where:
     const beforeType = before.types[id]
     const afterType = after.types[id]
     if (beforeType === undefined) {
-      lines.push(`+ type ${where}${id}`)
+      yield `+ type ${where}${id}`
     } else if (afterType === undefined) {
-      lines.push(`- type ${where}${id}`)
+      yield `- type ${where}${id}`
     } else if (!deepEqual(beforeType, afterType)) {
-      lines.push(`~ type ${where}${id}: definition changed`)
+      yield `~ type ${where}${id}: definition changed`
     }
   }
-
-  return lines
 }

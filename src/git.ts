@@ -113,23 +113,25 @@ export function resolveBaseCommit(cwd: string, candidate: BaseCandidate): Resolv
   return {reason: `could not resolve '${ref}' (${description}) to a commit`}
 }
 
-/** Content of a file at a given commit, or undefined if it does not exist there. */
-export function fileAtCommit(cwd: string, sha: string, repoRelPath: string): string | undefined {
-  const result = run('git', ['show', `${sha}:${repoRelPath}`], cwd)
-  return result.ok ? result.stdout : undefined
+/** Reads a snapshot already found in the base tree. */
+export function fileAtCommit(cwd: string, sha: string, repoRelPath: string): string {
+  const result = run('git', ['cat-file', 'blob', `${sha}:${repoRelPath}`], cwd)
+  if (!result.ok) throw new Error(`could not read base snapshot '${repoRelPath}' from git`)
+  return result.stdout
 }
 
 /** Snapshot names at the base, including snapshots absent from the working tree. */
 export function snapshotsAtCommit(cwd: string, sha: string, snapshotDir: string): string[] {
-  const result = run('git', ['ls-tree', '-z', '--name-only', `${sha}:${snapshotDir || '.'}`], cwd)
+  const prefix = snapshotDir === '' ? '' : `${snapshotDir}/`
+  const args = ['--literal-pathspecs', 'ls-tree', '--full-tree', '-z', '--name-only', sha]
+  if (prefix !== '') args.push('--', prefix)
+  const result = run('git', args, cwd)
   if (!result.ok) {
-    if (run('git', ['cat-file', '-e', `${sha}:${snapshotDir || '.'}`], cwd).ok) {
-      throw new Error(`Could not list base snapshots in '${snapshotDir}'`)
-    }
-    return []
+    throw new Error(`Could not list base snapshots in '${snapshotDir || '.'}'`)
   }
   return result.stdout
     .split('\0')
-    .filter(file => file.endsWith('.json'))
-    .map(file => file.slice(0, -5))
+    .filter(file => file.startsWith(prefix) && file.endsWith('.json'))
+    .map(file => file.slice(prefix.length, -5))
+    .filter(name => !name.includes('/'))
 }

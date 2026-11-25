@@ -22,8 +22,8 @@ export interface RawTypeMember {
 
 export interface RawType {
   encoding?: string
-  label?: string
-  numberOfBytes?: string
+  label: string
+  numberOfBytes: string
   members?: RawTypeMember[]
   base?: string
   key?: string
@@ -62,8 +62,8 @@ export interface NormalizedTypeMember {
 
 export interface NormalizedType {
   encoding?: string
-  label?: string
-  numberOfBytes?: string
+  label: string
+  numberOfBytes: string
   members?: NormalizedTypeMember[]
   base?: string
   key?: string

@@ -87,6 +87,7 @@ describe('git operations', () => {
   it('resolves context, commits and file contents', () => {
     fs.mkdirSync(path.join(repo, 'contracts', 'storage-layouts'), {recursive: true})
     fs.writeFileSync(path.join(repo, 'contracts', 'storage-layouts', 'Vault.json'), '{"v":1}')
+    fs.writeFileSync(path.join(repo, 'Root.json'), '{}')
     git('add', '.')
     git('commit', '-q', '-m', 'initial')
     const sha = git('rev-parse', 'HEAD')
@@ -99,10 +100,15 @@ describe('git operations', () => {
     expect(resolved).toEqual({sha, description: 'test'})
 
     expect(fileAtCommit(repo, sha, 'contracts/storage-layouts/Vault.json')).toBe('{"v":1}')
-    expect(fileAtCommit(repo, sha, 'contracts/storage-layouts/Missing.json')).toBeUndefined()
+    expect(() => fileAtCommit(repo, sha, 'contracts/storage-layouts/Missing.json')).toThrow(
+      'could not read base snapshot'
+    )
     expect(snapshotsAtCommit(repo, sha, 'contracts/storage-layouts')).toEqual(['Vault'])
     expect(snapshotsAtCommit(repo, sha, 'missing')).toEqual([])
-    expect(snapshotsAtCommit(repo, sha, '')).toEqual([])
+    expect(snapshotsAtCommit(path.join(repo, 'contracts'), sha, '')).toEqual(['Root'])
+    expect(() => snapshotsAtCommit(repo, 'missing-ref', 'contracts/storage-layouts')).toThrow(
+      'Could not list base snapshots'
+    )
     fs.rmSync(path.join(repo, 'contracts', 'storage-layouts'), {recursive: true})
     expect(snapshotsAtCommit(repo, sha, 'contracts/storage-layouts')).toEqual(['Vault'])
   })

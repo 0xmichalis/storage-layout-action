@@ -1,8 +1,10 @@
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import {describe, expect, it} from 'vitest'
 
-import {deepEqual, diffLayouts, normalizeLayout, parseLayout} from '../src/layout'
+import {deepEqual, diffLayouts, normalizeLayout, parseLayout, readSnapshot} from '../src/layout'
+import {MAX_COMMAND_OUTPUT_BYTES} from '../src/run'
 import {RawLayout} from '../src/types'
 
 const vaultSnapshot = fs.readFileSync(
@@ -29,6 +31,60 @@ describe('parseLayout', () => {
 
   it('rejects JSON without a storage array', () => {
     expect(() => parseLayout('{"types":{}}')).toThrow('expected an object with a `storage` array')
+  })
+
+  const item = {label: 'value', offset: 0, slot: '0', type: 't_uint256'}
+
+  it.each([
+    ['missing slot', {...item, slot: undefined}],
+    ['noncanonical slot', {...item, slot: '01'}],
+    ['slot above uint256', {...item, slot: (1n << 256n).toString()}],
+    ['out-of-range offset', {...item, offset: 32}],
+    ['fractional offset', {...item, offset: 0.5}],
+    ['missing label', {...item, label: undefined}],
+    ['invalid type identifier', {...item, type: 'constructor'}]
+  ])('rejects storage with %s', (_name, invalid) => {
+    expect(() => parseLayout(JSON.stringify({storage: [invalid]}))).toThrow('layout.storage[0]')
+  })
+
+  it('accepts the largest slot and byte offset', () => {
+    const lastByte = {...item, slot: ((1n << 256n) - 1n).toString(), offset: 31, type: 't_bool'}
+    expect(parseLayout(JSON.stringify({storage: [lastByte]})).storage).toEqual([lastByte])
+  })
+
+  it('checks type data and members within normalized namespaces', () => {
+    const scope = 'erc7201:example.main'
+    const layout = (types: unknown) =>
+      JSON.stringify({storage: [], namespaces: {[scope]: {storage: [], types}}})
+    expect(() => parseLayout(layout([]))).toThrow(`${scope}.types must be an object`)
+    expect(() => parseLayout(layout({t_uint256: {label: 'uint256'}}))).toThrow(
+      `${scope}.types[t_uint256]`
+    )
+    expect(() => parseLayout(layout({t_uint256: {label: 'uint256', numberOfBytes: '0'}}))).toThrow(
+      `${scope}.types[t_uint256]`
+    )
+    expect(() =>
+      parseLayout(layout({t_uint256: {label: 'uint256', numberOfBytes: '32', members: [null]}}))
+    ).toThrow(`${scope}.types[t_uint256].members[0]`)
+    expect(() => parseLayout('{"storage":[],"namespaces":{"erc7201:bad":null}}')).toThrow(
+      'erc7201:bad must have a storage array'
+    )
+  })
+})
+
+describe('readSnapshot', () => {
+  it('rejects oversized and non-regular snapshot files', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'layout-limit-'))
+    try {
+      expect(() => readSnapshot(dir)).toThrow('snapshot must be a regular file')
+      const file = path.join(dir, 'Large.json')
+      fs.writeFileSync(file, '{"storage":[]}')
+      expect(readSnapshot(file)).toEqual({storage: []})
+      fs.truncateSync(file, MAX_COMMAND_OUTPUT_BYTES + 1)
+      expect(() => readSnapshot(file)).toThrow(`snapshot exceeds ${MAX_COMMAND_OUTPUT_BYTES} bytes`)
+    } finally {
+      fs.rmSync(dir, {recursive: true, force: true})
+    }
   })
 })
 
@@ -90,6 +146,12 @@ describe('normalizeLayout', () => {
     expect(() => normalizeLayout(retyped)).toThrow(
       'layout references types with no definition: t_uint64'
     )
+  })
+
+  it('rejects duplicate storage positions before generating a diff', () => {
+    const raw = parseLayout(vaultSnapshot)
+    raw.storage.push({...raw.storage[0], label: 'duplicate'})
+    expect(() => normalizeLayout(raw)).toThrow('duplicate slot 0 offset 0')
   })
 
   it('rejects distinct same-named structs from different scopes', () => {
@@ -189,6 +251,25 @@ describe('diffLayouts', () => {
     expect(diffLayouts(base, changed)).toEqual([
       '~ type t_struct(Position)storage: definition changed'
     ])
+  })
+
+  it('caps the diagnostic across plain and namespaced sections', () => {
+    const changed = structuredClone(base)
+    const fields = (length: number) =>
+      Array.from({length}, (_, i) => ({
+        label: `extra${i}`,
+        offset: 0,
+        slot: String(i + 50),
+        type: 't_uint256'
+      }))
+    changed.storage.push(...fields(100))
+    expect(diffLayouts(base, changed)).toHaveLength(100)
+    changed.namespaces = {'erc7201:example.main': {storage: fields(1), types: {}}}
+    expect(diffLayouts(base, changed).slice(100)).toEqual([
+      'Additional storage layout differences omitted.'
+    ])
+    changed.storage[base.storage.length].label = 'a'.repeat(16 * 1024)
+    expect(diffLayouts(base, changed)).toEqual(['Additional storage layout differences omitted.'])
   })
 })
 
@@ -315,7 +396,7 @@ describe('ERC-7201 namespaces', () => {
 
   it('is idempotent', () => {
     const once = normalizeLayout(namespacedForgeLayout())
-    expect(deepEqual(normalizeLayout(once), once)).toBe(true)
+    expect(deepEqual(normalizeLayout(parseLayout(JSON.stringify(once))), once)).toBe(true)
   })
 
   it('omits namespaces when there are none', () => {

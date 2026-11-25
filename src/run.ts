@@ -1,5 +1,7 @@
 import {spawnSync} from 'child_process'
 
+export const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024 * 1024
+
 export interface RunResult {
   ok: boolean
   stdout: string
@@ -11,7 +13,7 @@ export function run(command: string, args: string[], cwd: string): RunResult {
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024
+    maxBuffer: MAX_COMMAND_OUTPUT_BYTES
   })
   return {
     ok: result.status === 0 && result.error === undefined,
@@ -20,8 +22,12 @@ export function run(command: string, args: string[], cwd: string): RunResult {
   }
 }
 
-/** Last `maxLines` non-empty lines of a stream, for error reporting. */
-export function tail(output: string, maxLines = 20): string {
-  const lines = output.split('\n').filter(line => line.trim() !== '')
-  return lines.slice(-maxLines).join('\n')
+/** Bounds command diagnostics to 20 lines and 16,384 UTF-16 code units. */
+export function tail(output: string): string {
+  const maxChars = 16 * 1024
+  const lines = output
+    .slice(-maxChars)
+    .split('\n')
+    .filter(line => line.trim() !== '')
+  return lines.slice(-20).join('\n')
 }
