@@ -24,6 +24,12 @@ jobs:
           package-manager: npm
           install-dependencies: 'false'
 
+      - name: Cache npm downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with: &npm-cache
+          path: ~/.npm
+          key: npm-cache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+
       - run: npm audit --package-lock-only --audit-level=high
       - run: npm ci --ignore-scripts
       - run: npm audit signatures
@@ -44,6 +50,10 @@ jobs:
           node-version: '22'
           package-manager: npm
           install-dependencies: 'false'
+
+      - name: Cache npm downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with: *npm-cache
 
       - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
         with:
